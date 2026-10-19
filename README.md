@@ -12,7 +12,7 @@ Current changes include direct `.data` access, save compatibility, local mailbox
 
 ## Download or build a game-free shell
 
-Open **Actions → Build game-free iOS shell → Run workflow**. After it finishes, download the artifact and unpack it to obtain `ACNHMobile-shell-build-input.zip`. Version tags (`v*`) also create a draft Release with the shell attached.
+Open **Actions → Build game-free iOS shell → Run workflow**. After it finishes, download the artifact and unpack it to obtain `ACNHMobile-shell-build-input.zip`. Version tags (`v*`) automatically publish a pre-release with the shell attached. To publish an existing tag manually, enter it in the workflow’s `release_tag` field; leaving that field empty creates an artifact only.
 
 The shell is **not directly playable or installable**. Use your own game files on an Apple Silicon Mac to prepare the program and shaders, then assemble and sign a private IPA. Existing `.data` resources stay external and are read without extraction. See [Shell guide](docs/SHELL.md) for the exact steps and current verification limits.
 

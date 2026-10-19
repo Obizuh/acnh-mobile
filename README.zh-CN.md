@@ -23,7 +23,7 @@
 
 打开 **Actions → Build game-free iOS shell → Run workflow**。完成后从该次运行的 **Artifacts** 下载并解开外层 ZIP，取得 `ACNHMobile-shell-build-input.zip`。
 
-给源码提交创建 `v` 开头的版本标签后，流程还会自动建立带空壳附件的**草稿 Release**，核对后即可发布。流程不需要游戏、key 或 Apple 签名证书。
+给源码提交创建 `v` 开头的版本标签后，流程会自动编译、检查并**发布带空壳附件的预发布 Release**，不必再点发布。手动运行时填写 `release_tag`（已有版本标签）也会自动发布；留空则只生成 Actions 附件。流程不需要游戏、key 或 Apple 签名证书。
 
 **空壳不含游戏程序，不能直接玩；只导入 `.data` 也无法启动。** 使用者需在自己的 Apple Silicon Mac 上准备游戏程序和着色器，组装完整 IPA 后签名安装。游戏资源继续从外置 `.data` 直接读取，不解压。
 
