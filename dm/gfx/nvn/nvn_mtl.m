@@ -156,19 +156,7 @@ static NSHashTable *g_res_objects;
 // 弱引用登记（__unsafe_unretained + 撤驻留时摘掉）；最近命中的那一项先试——同一通道里的绑定几乎都落在同一两个缓冲上
 // The older API binds by "buffer object + offset", while the replay layer holds GPU addresses: registered buffers (zero-copy buffers of memory pools, argument blocks, staging blocks and so on, a few dozen) are looked up by address range.
 // Registered by weak reference (__unsafe_unretained, removed when residency is withdrawn); the most recently hit entry is tried first - bindings within one pass almost always land on the same one or two buffers
-enum { M3_BUFS = 512 };
-static struct { uint64_t gpu, len; __unsafe_unretained id<MTLBuffer> buf; } g_m3_bufs[M3_BUFS]; static int g_m3_nbufs; static os_unfair_lock g_m3_lk = OS_UNFAIR_LOCK_INIT;
-static void m3_buf_add(id<MTLBuffer> b) { os_unfair_lock_lock(&g_m3_lk); if (g_m3_nbufs < M3_BUFS) { g_m3_bufs[g_m3_nbufs].gpu = b.gpuAddress; g_m3_bufs[g_m3_nbufs].len = b.length; g_m3_bufs[g_m3_nbufs++].buf = b; } os_unfair_lock_unlock(&g_m3_lk); }
-static void m3_buf_del(id b) { os_unfair_lock_lock(&g_m3_lk); for (int i = 0; i < g_m3_nbufs; i++) if (g_m3_bufs[i].buf == b) { g_m3_bufs[i] = g_m3_bufs[--g_m3_nbufs]; break; } os_unfair_lock_unlock(&g_m3_lk); }
-static id<MTLBuffer> m3_buf(uint64_t gpu, NSUInteger *off) {
-    static _Thread_local int last; id<MTLBuffer> r = nil; *off = 0; if (!gpu) return nil;
-    os_unfair_lock_lock(&g_m3_lk);
-    int i = last < g_m3_nbufs && gpu >= g_m3_bufs[last].gpu && gpu - g_m3_bufs[last].gpu < g_m3_bufs[last].len ? last : -1;
-    for (int k = 0; i < 0 && k < g_m3_nbufs; k++) if (gpu >= g_m3_bufs[k].gpu && gpu - g_m3_bufs[k].gpu < g_m3_bufs[k].len) i = k;
-    if (i >= 0) { last = i; r = g_m3_bufs[i].buf; *off = (NSUInteger)(gpu - g_m3_bufs[i].gpu); }
-    os_unfair_lock_unlock(&g_m3_lk);
-    return r;
-}
+#include "nvn_m3_buffers.h"
 #endif
 // 测试开关 DM_RES_CENSUS=1（不常开）：记下进过驻留集的全部对象（弱引用），内存读数行那一拍按「还在驻留集里 / 已移出驻留集却还没销毁」各报个数与占用。
 // 后一类 = 我们已经不用、但还有人攥着引用（例如客体线程上从不排空的自动释放池）的显卡内存

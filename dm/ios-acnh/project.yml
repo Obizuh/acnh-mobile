@@ -61,7 +61,7 @@ targets:
       PRODUCT_BUNDLE_IDENTIFIER: ${DM_BUNDLE_ID}
       PRODUCT_NAME: DmIOS
       MARKETING_VERSION: "1.0"
-      CURRENT_PROJECT_VERSION: "12"
+      CURRENT_PROJECT_VERSION: "14"
       DEVELOPMENT_TEAM: ${DM_TEAM_ID}
       CODE_SIGN_STYLE: Automatic
       ASSETCATALOG_COMPILER_APPICON_NAME: $(DM_APPICON)   # 有游戏图标时 Gen/dm.xcconfig 设 DM_APPICON = AppIcon；空 = 不设图标（xcodegen 缺省填 AppIcon，资源目录里没有就出包失败） | Gen/dm.xcconfig sets DM_APPICON = AppIcon when there is a game icon; empty = no icon (xcodegen's default is AppIcon, which fails the build when the catalog lacks it)

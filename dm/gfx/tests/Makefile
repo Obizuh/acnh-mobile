@@ -68,6 +68,7 @@ run: \
 	t_dirty_shared \
 	t_fuse_check \
 	t_hmap \
+	t_m3_buffers \
 	t_mip_extent \
 	t_nvn \
 	t_pace \
@@ -89,6 +90,7 @@ run: \
 	./t_dirty_shared
 	./t_dirty_race
 	./t_builtin
+	./t_m3_buffers
 	./t_deswz_gpu
 	./t_pace
 	./t_refl
@@ -138,3 +140,7 @@ t_pool_lookup: t_pool_lookup.m ../../host/crash.c $(GFX) $(GFX_H)
 # Compile the fixtures with games/acnh/tools/rebuild_alpha_test.py; pass the macOS fragment library.
 t_alpha_test: t_alpha_test.m ../../host/crash.c $(GFX) $(GFX_H)
 	clang $(CFLAGS) -fobjc-arc -o $@ t_alpha_test.m ../../host/crash.c $(filter-out ../nvn/nvn_mtl.m ../nvn/nvn_entry.S ../nvn/nvn_thunks.S,$(GFX)) $(FW)
+
+# Developed islands can exceed 512 live Metal buffers.
+t_m3_buffers: t_m3_buffers.m ../nvn/nvn_m3_buffers.h
+	clang -O1 -g -Wall -fobjc-arc -o $@ t_m3_buffers.m -framework Metal -framework Foundation

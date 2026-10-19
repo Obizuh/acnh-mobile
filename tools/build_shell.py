@@ -54,7 +54,7 @@ def main():
     (iconset/'Contents.json').write_text(json.dumps({'images':[{'filename':'icon.png','idiom':'universal','platform':'ios','size':'1024x1024'}],'info':{'author':'xcode','version':1}}))
     shutil.copyfile(ios/'Resources/AppIcon.png', iconset/'icon.png')
     shutil.copyfile(tree/'config/runtime.env',gen/'dm/env.txt')
-    metadata={'format':1,'source_id':source_id(ROOT),'build':12,'modules':['main','subsdk0','sdk'],'minimum_ios':'26.0','game_content':False}
+    metadata={'format':1,'source_id':source_id(ROOT),'build':14,'modules':['main','subsdk0','sdk'],'minimum_ios':'26.0','game_content':False}
     (gen/'dm/shell_info.json').write_text(json.dumps(metadata,indent=2)+'\n')
     subprocess.run(['xcodegen','generate','-q'],cwd=ios,env=e,check=True)
     with (a.work/'xcodebuild.log').open('w') as log:
