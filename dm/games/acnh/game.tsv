@@ -1,0 +1,30 @@
+# ACNH 3.0.3 / experimental compatibility profile, maintenance build 12.
+title_id	01006F8002326000
+program_id	01006F8002326000
+app_name	ACNH Mobile Experimental
+bundle_id	org.acnhmobile.experimental
+ipa	ACNHMobile-experimental.ipa
+app_category	public.app-category.action-games
+package	v2228224
+shader_versions	v2228224
+# 原版系统键盘渲染由 hle_swkbd.c 的宿主键盘替代；这些旧控制段 0x850 的系统 UI 着色器不进游戏图形库。
+# hle_swkbd.c replaces the system keyboard rendering; its old 0x850-control system-UI shaders are excluded from the game graphics library.
+shader_skip_prefixes	Swkbd/shader/
+modules	main subsdk0 sdk
+romfs_marker	Shader/Park_UBER_All.Nin_NX_NVN.szs
+zip_store	.zs:.bwav:.metallib
+mem_reserve	0x140000000
+mem_alias	0x50000000
+mem_stack	0x10000000
+app_pool	0xCD500000
+nvn_tex_base	0x20
+nvn_legacy_ctl_size	0x848
+nvn_legacy_ctl_version	14
+nvn_tex_slots	32
+nvn_samp_base	0x568
+nvn_img_base	0x120
+nvn_img_slots	8
+nvn_ssbo_bases	vs=0x110 ps=0x510 cs=0x310
+shader_groups	/Shader/=acnh /Effect/=effect /Layout/=layout
+shader_note	动森 3.0.3 实验：原始游戏着色器 | ACNH 3.0.3 experimental original-game shaders
+build	v2228224	3.0.3	main=ff1d1c05670db6021c85b624a710b963	subsdk0=6c6ceace7be94107a8bd440bc2d60704	sdk=a226048605d3597f90cb1067d141cd36
