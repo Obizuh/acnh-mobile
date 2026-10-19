@@ -41,6 +41,13 @@ static int boot_env(void) {
     NSFileManager *fm = NSFileManager.defaultManager;
     NSString *doc = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES)[0];
     NSString *res = NSBundle.mainBundle.resourcePath;
+#ifdef DM_SHELL
+    if (![fm fileExistsAtPath:[res stringByAppendingPathComponent:@"Frameworks/Guest.framework/Guest"]]) {
+        g_resource_failure=@"这是不含游戏程序的空壳。请先在电脑上按照源码包 docs/SHELL.zh-CN.md，使用自己的游戏文件生成完整 IPA，再签名安装。仅导入 .data 不足以启动游戏。";
+        return 0;
+    }
+#endif
+
     for (NSString *d in @[@"save", @"temp"]) [fm createDirectoryAtPath:[doc stringByAppendingPathComponent:d] withIntermediateDirectories:YES attributes:nil error:nil];
     // 日志：宿主只写 stderr；重定向到 Documents/log.txt（上一次的留作 log.prev.txt），出问题时从「文件」App 取
     // Log: the host only writes to stderr; redirect it to Documents/log.txt (the previous one is kept as log.prev.txt), retrieve it from the Files app when something goes wrong
@@ -94,8 +101,9 @@ static int g_boot_ok;
 void front_ios_prepare_resources(void (^progress)(double), void (^completion)(NSString *)) {
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED,0), ^{
         NSString *folder=data_locate();NSString *failure=g_resource_failure;
-        if(!folder)failure=@"请把 ACNH-index.data 和全部 ACNH-001.data～ACNH-010.data 放到动森数据容器的 Documents（也支持其中的 ACNHMobile 文件夹）。\n本版直接读取数据包，不解压，不需要 acnh-pack.json。";
-        else {failure=acnh_mount_resources(folder);if(!failure){g_boot_ok=boot_env();if(!g_boot_ok)failure=@"数据包已挂载，但启动环境未就绪";}}
+        if(failure) {}
+        else if(!folder)failure=@"请把 ACNH-index.data 和全部 ACNH-001.data～ACNH-010.data 放到动森数据容器的 Documents（也支持其中的 ACNHMobile 文件夹）。\n本版直接读取数据包，不解压，不需要 acnh-pack.json。";
+        else {failure=acnh_mount_resources(folder);if(!failure){g_boot_ok=boot_env();if(!g_boot_ok)failure=g_resource_failure ?: @"数据包已挂载，但启动环境未就绪";}}
         if(progress)progress(failure?0:1);
         dispatch_async(dispatch_get_main_queue(),^{completion(failure);});
     });
