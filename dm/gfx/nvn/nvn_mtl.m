@@ -4710,9 +4710,28 @@ static void bind_alpha_test(RENC en, NvShader *sh) {
     }
 }
 
+// ACNH 3.0.3 shoreline soft particles use a yellow depth-prepass sentinel.
+// On Metal that prepass can remain visible where the later soft-depth fade
+// rejects the color pass. Suppressing color alone leaves a black depth hole.
+// Bypass only these three known opaque prepass variants; the normal
+// splash color shader and other particle/shadow passes still execute unchanged.
+// Compatibility workaround: ACNH_WATER_PREPASS_FIX=0 restores the baseline.
+static int acnh_shore_prepass(NvProg *pr) {
+    static int enabled = -1;
+    if (enabled < 0) { const char *e = getenv("ACNH_WATER_PREPASS_FIX"); enabled = !e || strcmp(e, "0"); }
+    return enabled && pr && pr->sh[0] && pr->sh[1] && R.rt.n == 1 &&
+        R.rt.color[0] && R.rt.depth && S.ds.dt && S.ds.dw && !S.color.blend_en &&
+        (!strncmp(pr->sh[1]->key, "1c1e8159fb651c7e", 16) ||
+         !strncmp(pr->sh[1]->key, "0a579caafc182c8a", 16) ||
+         !strncmp(pr->sh[1]->key, "c86b6b5d82342ec0", 16));
+}
 static void draw(const p_draw *dw, const p_draw_idx *di) {
     if (!S.prog) { RED_ONCE(18, "绘制前没有绑定程序"); return; }
     __unsafe_unretained NvProg *pr = prog_get(S.prog);
+    if (acnh_shore_prepass(pr)) {
+        static int once; if (!once++) MLOG("ACNH 岸边水花：跳过异常深度预绘制，保留正常水花绘制");
+        return;
+    }
     if (g_ruler_truth == 0) {   // 尺子负对照（DM_NVN_RULER_NEG=<片元键>）：被测模式下丢掉该着色器的绘制，尺子必须报不等价 | Ruler negative control (DM_NVN_RULER_NEG=<fragment key>): in the mode under test drop this shader's draws, and the ruler must report non-equivalence
         static const char *neg; static int ng = -1; if (ng < 0) { neg = getenv("DM_NVN_RULER_NEG"); ng = neg && *neg; }
         if (ng && pr) for (int st = 0; st < 5; st++) { __unsafe_unretained NvShader *sh = pr->sh[st]; if (sh && sh->stage == 1 && !strncmp(sh->key, neg, strlen(neg))) { static int once; if (!once++) MLOG("DM_NVN_RULER_NEG：被测模式丢弃着色器 %s 的绘制", sh->key); return; } }

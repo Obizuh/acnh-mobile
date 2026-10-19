@@ -6,6 +6,8 @@
 // Return convention as in hle_friends.c: Result returns RES_FAIL ("saved / submitted" kinds return RES_OK so the game does not retry); bool returns false; events get a bound SystemEvent that never fires.
 #include "hle.h"
 
+#include "acnh_caps.inc"
+
 static _Alignas(16) uint8_t g_ev_ldn[0x100];
 
 // ---------- prepo：遥测报告。存 / 提交都报成功，什么也不发 ----------
@@ -123,6 +125,8 @@ HLE_FORCE("_ZN2nn2sf4hipc31InitializeHipcServiceResolutionEv", "宿主离线：�
 HLE_FORCE("_ZN2nn2sf4hipc29FinalizeHipcServiceResolutionEv", "宿主离线：无 HIPC 服务管理器", void, h_hipc_FiniResolution, void) {}
 HLE_FORCE("_ZN2nn2sf4hipc20ConnectToHipcServiceEPNS_3svc6HandleEPKc", "宿主离线：服务不可用，不伪造有效句柄", Result, h_hipc_Connect, uint32_t *out, const char *name) {
     if (out && name && !strcmp(name, "olsc:u")) { *out = 0x6f6c7363u; LOG("OLSC offline settings session"); return RES_OK; }
+    if (out && name && !strcmp(name, "caps:su")) { *out=ACNH_CAPS_HANDLE; LOG("CAPS local screenshot session"); return RES_OK; }
+    if (out && name && !strcmp(name, "caps:u")) { *out=ACNH_CAPSU_HANDLE; LOG("CAPS local photo precheck session"); return RES_OK; }
     if (out) *out = 0;
     LOG("HIPC service unavailable offline: %s", name ? name : "(null)");
     return RES_FAIL;
@@ -131,6 +135,7 @@ HLE_FORCE("_ZN2nn2sf4hipc20ConnectToHipcServiceEPNS_3svc6HandleEPKc", "宿主离
 // Minimal OLSC application settings protocol. Only initialize and the disabled
 // backup-setting query and disabling succeed; enabling, upload/download and unknown operations fail.
 HLE_FORCE("_ZN2nn2sf4hipc15SendSyncRequestENS_3svc6HandleEPvm", "OLSC 离线设置：备份关闭，不上传下载", Result, h_hipc_Send, uint32_t handle, void *buf, size_t size) {
+    if (handle == ACNH_CAPS_HANDLE || handle == ACNH_CAPSU_HANDLE) return acnh_caps_request(handle,buf,size);
     if (handle != 0x6f6c7363u || !buf || size < 0x80) return RES_FAIL;
     uint32_t *w = buf; unsigned type = w[0] & 0xffff, pos = 8;
     if (w[1] >> 31) { uint32_t special = w[2]; pos += 4 + (special & 1 ? 8 : 0) + ((special >> 1) & 15) * 4 + ((special >> 5) & 15) * 4; }

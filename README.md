@@ -10,6 +10,8 @@ Maintenance build 12, 2026-10-19. The iOS project currently targets iOS 26+ usin
 
 Current changes include direct `.data` access, save compatibility, local mailbox support, map alpha tests, vertex position invariance, native text input, touch controls, 30 fps/720p defaults, host timezone handling and bounded iPhone haptic feedback. Phone haptic feel still needs device verification.
 
+Latest fixes (2026-10-20): local screenshot service for shutter crashes, and a targeted workaround for yellow shoreline splash prepasses. Mac shoreline regression captured 300 frames with no yellow artifacts versus 34 affected frames in the baseline. iOS Release compilation passed; device verification is still required. See the [maintenance log](docs/CHANGELOG.zh-CN.md).
+
 ## Download or build a game-free shell
 
 Open **Actions → Build game-free iOS shell → Run workflow**. After it finishes, download the artifact and unpack it to obtain `ACNHMobile-shell-build-input.zip`. Version tags (`v*`) automatically publish a pre-release with the shell attached. To publish an existing tag manually, enter it in the workflow’s `release_tag` field; leaving that field empty creates an artifact only.

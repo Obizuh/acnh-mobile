@@ -135,3 +135,10 @@ $(B)/t_timezone: t_timezone.c ../hle_time.c ../hle.h ../dm.h | $(B)
 
 $(B)/t_vibration: t_vibration.c t_vibration_frontend.c ../hle_hid.c ../dm_vibration.h | $(B)
 	clang -O1 -g -Wno-unused-function -I.. $(GINC) -o $@ t_vibration.c t_vibration_frontend.c
+
+# Local photo service: protocol and actual PNG encoder checks, no game files.
+$(B)/t_caps: t_caps.c ../acnh_caps.inc ../hle_offline.c | $(B)
+	clang -O1 -g -Wno-unused-function -I.. $(GINC) -o $@ t_caps.c
+
+$(B)/t_caps_pixels: t_caps_pixels.m ../../gfx/nvn/caps_photo.m | $(B)
+	clang -fobjc-arc -o $@ t_caps_pixels.m ../../gfx/nvn/caps_photo.m -framework Foundation -framework CoreGraphics -framework ImageIO -framework UniformTypeIdentifiers

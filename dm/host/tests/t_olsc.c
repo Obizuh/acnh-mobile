@@ -1,6 +1,8 @@
 #include "../hle_offline.c"
 void hle_bind_system_event(void *p,int on){(void)p;(void)on;}
 
+int dm_caps_photo_space(void){return 0;}
+int dm_caps_save_rgba(const void*p,size_t n,uint8_t e[32]){(void)p;(void)n;(void)e;return 0;}
 static int failures,checks;
 #define CHECK(c) do { checks++;if(!(c)){failures++;printf("FAIL line %d\n",__LINE__);} }while(0)
 static void request(uint32_t *w,unsigned type,int domain,unsigned cmd,unsigned pid){

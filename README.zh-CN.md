@@ -19,6 +19,8 @@
 - 游戏时间跟随设备系统时间与时区，含跨日及夏令时规则。
 - iPhone 游戏震动转短触觉反馈，带限频、后台和高温停止；实际手机手感仍待复测。
 
+2026-10-20 更新：修复按快门时缺少本地拍照服务导致的中止；对岸边金色水花加入针对性预绘制兼容处理。电脑对照测试各采集 300 张截图，修复前 34 张出现黄色、修复后为 0；iOS Release 编译通过，手机端仍待安装验证。
+
 ## GitHub 自动生成空壳
 
 打开 **Actions → Build game-free iOS shell → Run workflow**。完成后从该次运行的 **Artifacts** 下载并解开外层 ZIP，取得 `ACNHMobile-shell-build-input.zip`。
