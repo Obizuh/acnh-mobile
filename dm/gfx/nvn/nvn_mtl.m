@@ -56,6 +56,18 @@
 #include "nvn_refl.h"
 #include "nvn_cover.h"
 #include "dmsh_chain.h"   // DMSH_CHAIN：本源码树期望的 B 着色器库翻译链版本 | DMSH_CHAIN: the translation chain version of the B shader library expected by this source tree
+// Shells receive the locally prepared shader chain in their private env.txt.
+// Ordinary embedded builds retain their compile-time chain.
+#ifdef DM_SHELL
+static const char *dm_runtime_chain(void) {
+    const char *s = getenv("DM_SHELL_CHAIN");
+    if (!s || !*s || strlen(s) > 64 || strspn(s, "0123456789abcdef") != strlen(s)) return DMSH_CHAIN;
+    return s;
+}
+#define DM_RUNTIME_CHAIN dm_runtime_chain()
+#else
+#define DM_RUNTIME_CHAIN DMSH_CHAIN
+#endif
 #include "nvn_hmap.h"
 #include "../../host/dm.h"
 #import <CommonCrypto/CommonDigest.h>
@@ -2209,12 +2221,12 @@ static void shmap_load(void) {
     const char *m = getenv("DM_MSL_DIR");
     // 库目录 = <DM_MSL_DIR 或缺省缓存>/b-<翻译链版本>：版本取自本源码树的 dmsh_chain.h（tools/dmsh_chain.py），旧源码树编的宿主只认旧版本的库
     // Library directory = <DM_MSL_DIR or default cache>/b-<translation chain version>: the version comes from this source tree's dmsh_chain.h (tools/dmsh_chain.py); a host built from an old source tree only accepts libraries of the old version
-    g_msl_dir = [NSString stringWithFormat:@"%@/b-%s", m ? @(m) : [NSString stringWithFormat:@"%s%s/build/cache/metal_shader_cache", getenv("DM_ROOT") ?: getenv("HOME"), getenv("DM_ROOT") ? "" : "/dm-work"], DMSH_CHAIN];
-    if (![NSFileManager.defaultManager fileExistsAtPath:g_msl_dir]) MLOG("【红】着色器库目录 %s 不存在：本源码树的翻译链版本 %s 还没出包（dm/gfx/tools/dmsh_build.py）", g_msl_dir.UTF8String, DMSH_CHAIN);
+    g_msl_dir = [NSString stringWithFormat:@"%@/b-%s", m ? @(m) : [NSString stringWithFormat:@"%s%s/build/cache/metal_shader_cache", getenv("DM_ROOT") ?: getenv("HOME"), getenv("DM_ROOT") ? "" : "/dm-work"], DM_RUNTIME_CHAIN];
+    if (![NSFileManager.defaultManager fileExistsAtPath:g_msl_dir]) MLOG("【红】着色器库目录 %s 不存在：本源码树的翻译链版本 %s 还没出包（dm/gfx/tools/dmsh_build.py）", g_msl_dir.UTF8String, DM_RUNTIME_CHAIN);
     NSString *cp = [[path stringByDeletingLastPathComponent] stringByAppendingPathComponent:@"c1_full.tsv"];   // 与映射表同目录（Mac：dm/gfx/nvn；iOS：App 内 dm/，run.sh 一起拷） | Same directory as the mapping table (Mac: dm/gfx/nvn; iOS: dm/ inside the App, copied along by run.sh)
     NSString *ct = cp ? [NSString stringWithContentsOfFile:cp encoding:NSUTF8StringEncoding error:nil] : nil;
     NSString *head = ct ? [[ct componentsSeparatedByString:@"\n"] firstObject] : nil;
-    NSString *want = [NSString stringWithFormat:@"# chain b-%s", DMSH_CHAIN];
+    NSString *want = [NSString stringWithFormat:@"# chain b-%s", DM_RUNTIME_CHAIN];
     if (!head || ![head hasPrefix:want]) {
         MLOG("【红】c1_full.tsv 清单过期或缺失，全部 c1 独占 64 KiB");
     } else {
@@ -2378,7 +2390,7 @@ static NvShader *shader_load(NSString *pc, int stage) {
     NSData *jd = [NSData dataWithContentsOfFile:[NSString stringWithFormat:@"%@/%@.json", g_msl_dir, pc]];
     NSDictionary *j = jd ? [NSJSONSerialization JSONObjectWithData:jd options:0 error:nil] : nil;
     if (!lib || !j) { MLOG("【红】加载着色器失败 %s：%s", pc.UTF8String, e ? e.localizedDescription.UTF8String : "无反射 json"); return nil; }
-    if (![j[@"chain"] isEqual:@DMSH_CHAIN]) { MLOG("【红】着色器 %s 的翻译链版本 %s 与本宿主期望的 %s 不符", pc.UTF8String, [[j[@"chain"] description] UTF8String], DMSH_CHAIN); return nil; }
+    if (![j[@"chain"] isEqual:@(DM_RUNTIME_CHAIN)]) { MLOG("【红】着色器 %s 的翻译链版本 %s 与本宿主期望的 %s 不符", pc.UTF8String, [[j[@"chain"] description] UTF8String], DM_RUNTIME_CHAIN); return nil; }
     NvShader *o = [NvShader new];
     o->alpha_test = [j[@"acnh_alpha_test"] boolValue];
     char err[160];
