@@ -9,7 +9,7 @@
 1. 把本版本源码完整提交到仓库，包括 `.github/workflows/shell-build.yml`。
 2. 打开 **Actions → Build game-free iOS shell → Run workflow**，选择 `main` 后运行。
 3. 完成后在该次运行底部 **Artifacts** 下载 `ACNHMobile-shell-build-input`。解开外层下载 ZIP，里面才是空壳 ZIP、内容检查报告与 SHA256SUMS。
-4. 如需 Releases：给对应源码提交创建 `v` 开头的标签，例如 `v1.0.0`。流程会生成同标签的**草稿 Release**并附上空壳；核对后手动发布。普通手动运行只生成 Artifact。
+4. 如需 Releases：给对应源码提交创建 `v` 开头的标签，例如 `v1.0.0`。流程会在检查和构建成功后自动发布同标签的**预发布 Release**，并附上完整空壳、报告和校验文件，不必再手动发布。在 GitHub 页面发布版本也会触发构建。手动运行时填写 `release_tag`（必须是已有标签）同样会自动发布；留空则只生成 Artifact。
 
 流程使用 GitHub 的 `macos-26` 机器，只安装 XcodeGen，不接收游戏文件，不需要 Apple 证书、密钥或其他 Secrets。它不会在 GitHub 上构建含游戏的完整 IPA。
 
