@@ -4,6 +4,8 @@ import argparse,hashlib,json,re,sys
 from pathlib import Path
 FORBIDDEN_DIRS={'Gen','gen','bin','obj','build','__pycache__','node_modules','RomFS','romfs','ExeFS','save','save.work','Payload'}
 FORBIDDEN_EXT={'.zs','.szs','.bwav','.bars','.bfres','.msbt','.metal','.bin','.metallib','.air','.spv','.nsp','.xci','.nca','.nso','.nro','.data','.keys','.key','.p8','.p12','.pem','.mobileprovision','.ipa','.o','.a','.dylib','.ttf','.otf','.png','.jpg','.jpeg','.webp','.mov','.mp4','.pyc'}
+APP_ICON=Path("dm/ios-acnh/Resources/AppIcon.png")
+APP_ICON_SHA256="2277057516772ef6059f77476cfed5ea0a1743333458c1f0241c331594665cf5"
 MAGICS=(b'NSO0',b'PFS0',b'HFS0',b'ACNHDAT1',b'\xcf\xfa\xed\xfe',b'\xfe\xed\xfa\xcf',b'\x7fELF')
 SECRET=re.compile(r'-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|(?:master_key_[0-9a-f]+|titlekek_[0-9a-f]+|header_key)\s*=\s*[0-9a-fA-F]{32,}|AKIA[0-9A-Z]{16}')
 def audit(root):
@@ -14,6 +16,13 @@ def audit(root):
   if p.is_symlink():errors.append(str(rel)+': symlink');continue
   if not p.is_file():continue
   if any(x in FORBIDDEN_DIRS or x.endswith(('.dSYM','.app','.xcodeproj','.xcworkspace'))for x in parts):errors.append(str(rel)+': generated/private directory')
+  # The single, pinned app-identification icon is the only binary asset allowed.
+  if rel==APP_ICON:
+   data=p.read_bytes()
+   if not data.startswith(b'\x89PNG\r\n\x1a\n') or hashlib.sha256(data).hexdigest()!=APP_ICON_SHA256:
+    errors.append(str(rel)+': unexpected project icon content')
+   manifest.append({'path':str(rel),'bytes':len(data),'sha256':hashlib.sha256(data).hexdigest()})
+   continue
   if p.suffix.lower()in FORBIDDEN_EXT:errors.append(str(rel)+': runtime/binary/resource format')
   data=p.read_bytes()
   if data.startswith(MAGICS)or b'\0'in data:errors.append(str(rel)+': binary/module content');continue

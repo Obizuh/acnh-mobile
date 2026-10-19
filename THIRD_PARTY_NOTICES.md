@@ -6,4 +6,4 @@
 - Ryujinx shader translator source: dm/third_party/ryujinx/LICENSE.txt and source notices.
 - libvpx, libdeflate and bcdec: licenses and notices retained in their respective dm/third_party directories. See those files for each component's terms.
 
-No license for Nintendo game content or keys is provided. None of that content is in this source archive.
+No license for Nintendo game content or keys is provided. The only artwork included is the app-identification icon at `dm/ios-acnh/Resources/AppIcon.png`; Animal Crossing artwork and trademarks belong to Nintendo and are not covered by the code MIT license. No game program or playable resources are included.

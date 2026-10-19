@@ -2,7 +2,7 @@
 
 Experimental native compatibility layer for Animal Crossing: New Horizons **3.0.3** on iPhone / iPad, with an Apple Silicon Mac development host. Based on the open-source D2R Mobile compatibility layer, with ACNH-specific graphics, input, storage and system-service support.
 
-****Public downloads contain source/tools and a game-free runtime shell. No game program, game assets, translated game shaders, keys or saves are distributed.**** Users prepare all game-derived runtime files locally from their own files. A locally generated IPA embeds the user's game modules and translated shaders; it is not part of the source-only release.
+****Public downloads contain source/tools and a game-free runtime shell. No game program, playable game assets, translated game shaders, keys or saves are distributed. The bundled app-identification icon is the sole artwork exception.**** Users prepare all game-derived runtime files locally from their own files. A locally generated IPA embeds the user's game modules and translated shaders; it is not part of the source-only release.
 
 [简体中文（完整说明）](README.zh-CN.md) · [Build](docs/BUILD.md) · [Game files](docs/GAME_FILES.md) · [Release contents](docs/DERIVED.md)
 
@@ -11,6 +11,8 @@ Maintenance build 12, 2026-10-19. The iOS project currently targets iOS 26+ usin
 Current changes include direct `.data` access, save compatibility, local mailbox support, map alpha tests, vertex position invariance, native text input, touch controls, 30 fps/720p defaults, host timezone handling and bounded iPhone haptic feedback. Phone haptic feel still needs device verification.
 
 Latest fixes (2026-10-20): local screenshot service for shutter crashes, and a targeted workaround for yellow shoreline splash prepasses. Mac shoreline regression captured 300 frames with no yellow artifacts versus 34 affected frames in the baseline. iOS Release compilation passed; device verification is still required. See the [maintenance log](docs/CHANGELOG.zh-CN.md).
+
+GitHub shell builds and local IPA builds use the bundled project icon automatically; no `DM_ICON` setting is required.
 
 ## Download or build a game-free shell
 

@@ -52,7 +52,7 @@ def main():
     (gen/'Assets.xcassets').mkdir(); (gen/'Assets.xcassets/Contents.json').write_text('{"info":{"author":"xcode","version":1}}')
     iconset=gen/'Assets.xcassets/AppIcon.appiconset'; iconset.mkdir()
     (iconset/'Contents.json').write_text(json.dumps({'images':[{'filename':'icon.png','idiom':'universal','platform':'ios','size':'1024x1024'}],'info':{'author':'xcode','version':1}}))
-    subprocess.run(['swift', '-module-cache-path', a.work/'swift-cache', tree/'tools/generate_icon.swift', iconset/'icon.png'], check=True)
+    shutil.copyfile(ios/'Resources/AppIcon.png', iconset/'icon.png')
     shutil.copyfile(tree/'config/runtime.env',gen/'dm/env.txt')
     metadata={'format':1,'source_id':source_id(ROOT),'build':12,'modules':['main','subsdk0','sdk'],'minimum_ios':'26.0','game_content':False}
     (gen/'dm/shell_info.json').write_text(json.dumps(metadata,indent=2)+'\n')

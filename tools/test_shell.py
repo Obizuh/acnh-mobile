@@ -5,6 +5,7 @@ from pathlib import Path
 sys.dont_write_bytecode=True
 from pack_shell import extract_shell
 from build_shell import ROOT, source_id
+from audit_release import audit, APP_ICON
 
 class ShellTests(unittest.TestCase):
     def test_archive_paths(self):
@@ -54,6 +55,16 @@ class ShellTests(unittest.TestCase):
                         self.assertEqual(off%0x4000,0);found[key]=data[off:off+sz]
                 pos+=size
             self.assertEqual(found,expected)
+
+    def test_project_icon_audit_boundary(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp); icon=root/APP_ICON; icon.parent.mkdir(parents=True)
+            data=(ROOT/APP_ICON).read_bytes(); icon.write_bytes(data)
+            self.assertEqual(audit(root)[0],[])
+            extra=icon.with_name('Other.png'); extra.write_bytes(data)
+            self.assertTrue(audit(root)[0]); extra.unlink()
+            icon.write_bytes(data+b'changed')
+            self.assertTrue(audit(root)[0])
 
     def test_source_fingerprint(self):
         with tempfile.TemporaryDirectory() as tmp:
