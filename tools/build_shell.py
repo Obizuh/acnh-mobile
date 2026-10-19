@@ -18,13 +18,16 @@ def source_id(root):
 def audit_app(app):
     allowed = {'DmIOS', 'Info.plist', 'PkgInfo', 'dm/env.txt', 'dm/shell_info.json'}
     actual = {str(p.relative_to(app)) for p in app.rglob('*') if p.is_file()}
-    if actual != allowed:
-        raise ValueError('Unexpected shell files: '+str(actual ^ allowed))
+    icons = {'Assets.car', 'AppIcon60x60@2x.png', 'AppIcon60x60@3x.png', 'AppIcon76x76@2x~ipad.png'}
+    if not allowed <= actual or actual - allowed - icons:
+        raise ValueError('Unexpected shell files: '+str((allowed - actual) | (actual - allowed - icons)))
     if any(p.is_symlink() for p in app.rglob('*')):
         raise ValueError('Shell contains symbolic links')
     info = plistlib.loads((app/'Info.plist').read_bytes())
     if info['CFBundleIdentifier'] != 'org.acnhmobile.experimental':
         raise ValueError('Wrong bundle ID')
+    if not info.get('CFBundleIcons', {}).get('CFBundlePrimaryIcon', {}).get('CFBundleIconFiles') or 'Assets.car' not in actual:
+        raise ValueError('Shell app icon is missing')
     commands = subprocess.check_output(['otool', '-l', app/'DmIOS'], text=True)
     if re.search(r'(?:sectname __dm\w+x[01]|segname __DM\w+W)', commands):
         raise ValueError('Embedded game sections remain')
@@ -43,9 +46,13 @@ def main():
     config=subprocess.check_output(['python3',ios/'tools/gen_build.py',tree/'dm/host',gen],env=e,text=True)
     config=re.sub(r'(?m)^OTHER_CFLAGS = (.*)$',r'OTHER_CFLAGS = \1 -DDM_SHELL=1',config)
     config+='\nOTHER_LDFLAGS = $(inherited) $(DM_FRAMEWORKS)\n'
+    config += '\nDM_APPICON = AppIcon\n'
     (gen/'dm.xcconfig').write_text(config)
     (gen/'embed.S').write_text('// Game-free shell: no embedded module images.\n')
     (gen/'Assets.xcassets').mkdir(); (gen/'Assets.xcassets/Contents.json').write_text('{"info":{"author":"xcode","version":1}}')
+    iconset=gen/'Assets.xcassets/AppIcon.appiconset'; iconset.mkdir()
+    (iconset/'Contents.json').write_text(json.dumps({'images':[{'filename':'icon.png','idiom':'universal','platform':'ios','size':'1024x1024'}],'info':{'author':'xcode','version':1}}))
+    subprocess.run(['swift', '-module-cache-path', a.work/'swift-cache', tree/'tools/generate_icon.swift', iconset/'icon.png'], check=True)
     shutil.copyfile(tree/'config/runtime.env',gen/'dm/env.txt')
     metadata={'format':1,'source_id':source_id(ROOT),'build':12,'modules':['main','subsdk0','sdk'],'minimum_ios':'26.0','game_content':False}
     (gen/'dm/shell_info.json').write_text(json.dumps(metadata,indent=2)+'\n')
