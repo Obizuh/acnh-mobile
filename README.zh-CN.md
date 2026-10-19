@@ -2,7 +2,7 @@
 
 《集合啦！动物森友会》3.0.3 的实验性 iPhone / iPad 原生兼容层，包含 Apple Silicon Mac 调试宿主。基于 D2R Mobile 的公开兼容层，并加入 ACNH 对应的系统服务、图形、输入、存档与资源读取支持。
 
-本仓库仅提供源码、构建工具、接口描述和说明。**不提供游戏本体、游戏程序、资源、着色器、密钥或存档。** 这些内容须由使用者从自己持有的游戏文件在本地生成。生成的 IPA 内含使用者自己的游戏程序与翻译着色器，不属于本项目的纯源码发布包。
+本仓库提供源码、构建工具、接口说明，并支持自动生成不含游戏的运行空壳。**不提供游戏本体、游戏程序、资源、着色器、密钥或存档。** 这些内容须由使用者从自己持有的游戏文件在本地生成。生成的 IPA 内含使用者自己的游戏程序与翻译着色器，不属于本项目的纯源码发布包。
 
 [English](README.md) · [构建说明](docs/BUILD.zh-CN.md) · [游戏文件与 .data](docs/GAME_FILES.zh-CN.md) · [目录及发布边界](docs/DERIVED.zh-CN.md) · [更新记录](docs/CHANGELOG.zh-CN.md)
 
@@ -19,7 +19,17 @@
 - 游戏时间跟随设备系统时间与时区，含跨日及夏令时规则。
 - iPhone 游戏震动转短触觉反馈，带限频、后台和高温停止；实际手机手感仍待复测。
 
-## 开始
+## GitHub 自动生成空壳
+
+打开 **Actions → Build game-free iOS shell → Run workflow**。完成后从该次运行的 **Artifacts** 下载并解开外层 ZIP，取得 `ACNHMobile-shell-build-input.zip`。
+
+给源码提交创建 `v` 开头的版本标签后，流程还会自动建立带空壳附件的**草稿 Release**，核对后即可发布。流程不需要游戏、key 或 Apple 签名证书。
+
+**空壳不含游戏程序，不能直接玩；只导入 `.data` 也无法启动。** 使用者需在自己的 Apple Silicon Mac 上准备游戏程序和着色器，组装完整 IPA 后签名安装。游戏资源继续从外置 `.data` 直接读取，不解压。
+
+完整步骤、电脑要求和验证范围见[空壳构建与私人组包说明](docs/SHELL.zh-CN.md)。当前不宣称支持 Windows/Linux 一键完成全部游戏准备。
+
+## 在本地构建
 
 在 Apple Silicon Mac 上安装 Xcode、Metal 编译工具、XcodeGen、.NET 10、spirv-cross、zstd 与 Python 3.10+，然后：
 
@@ -52,4 +62,4 @@ python -m pip install -r requirements.txt
 
 ## 来源与许可
 
-基础：[D2R Mobile](https://github.com/jhaizhou-ops/d2r-mobile)。兼容层修改的上游版权声明保留于 [LICENSE](LICENSE)。离线准备工具选自同一 MIT 代码系的已有多游戏工具；本次整理没有替换维护版本的宿主/渲染器。附加来源见 [第三方说明](THIRD_PARTY_NOTICES.md) 以及各第三方目录中的许可。项目与任天堂无隶属关系。
+基础：[D2R Mobile](https://github.com/jhaizhou-ops/d2r-mobile)。兼容层修改的上游版权声明保留于 [LICENSE](LICENSE)。离线准备工具选自同一 MIT 代码系的已有多游戏工具；空壳增加独立游戏程序装载和本地着色器链适配，普通内嵌构建仍使用原有路径。附加来源见 [第三方说明](THIRD_PARTY_NOTICES.md) 以及各第三方目录中的许可。项目与任天堂无隶属关系。
