@@ -10,3 +10,4 @@ jobs:
           python-version: '3.12'
       - run: python tools/audit_release.py .
       - run: python tools/public_setup.py --help
+      - run: python tools/test_shell.py

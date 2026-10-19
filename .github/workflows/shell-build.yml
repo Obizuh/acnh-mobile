@@ -1,0 +1,39 @@
+name: Build game-free iOS shell
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+permissions:
+  contents: read
+jobs:
+  shell:
+    runs-on: macos-26
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Audit public sources
+        run: python tools/audit_release.py .
+      - name: Test shell packaging
+        run: python tools/test_shell.py
+      - name: Install project generator
+        run: brew install xcodegen
+      - name: Build shell without game files or signing secrets
+        run: python tools/build_shell.py --work "$RUNNER_TEMP/acnh-shell" --output "$RUNNER_TEMP/shell-output"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ACNHMobile-shell-build-input
+          path: ${{ runner.temp }}/shell-output/*
+          if-no-files-found: error
+      - name: Upload to draft release on version tags
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          gh release view "$RELEASE_TAG" >/dev/null 2>&1 || gh release create "$RELEASE_TAG" --draft --title "$RELEASE_TAG" --notes "Game-free shell build input. Not directly installable. See docs/SHELL.zh-CN.md. No game files, keys, shaders or saves included."
+          gh release upload "$RELEASE_TAG" "$RUNNER_TEMP"/shell-output/* --clobber
+    permissions:
+      contents: write
