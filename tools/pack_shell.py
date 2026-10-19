@@ -5,6 +5,7 @@ sys.dont_write_bytecode = True
 import argparse, importlib.util, json, os, plistlib, re, shutil, tempfile, zipfile
 from pathlib import Path, PurePosixPath
 from build_shell import source_id, ROOT
+from check_invariance import check_invariance
 
 def extract_shell(archive, dest):
     with zipfile.ZipFile(archive) as z:
@@ -28,6 +29,7 @@ def main():
     # Check everything before creating a large temporary install package.
     chain=re.search(r'#define DMSH_CHAIN "([0-9a-f]+)"',(profile/'dmsh_chain.h').read_text()).group(1)
     cache=a.shaders/('b-'+chain)
+    check_invariance(cache)
     libs=list(cache.glob('*_b.metallib'))
     if not libs: raise ValueError('Missing prepared iOS shader libraries: '+str(cache))
     for lib in libs:

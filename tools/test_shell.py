@@ -1,13 +1,28 @@
 #!/usr/bin/env python3
 """Synthetic shell tests: no game files or Apple tools required."""
-import importlib.util, json, struct, sys, tempfile, unittest, zipfile
+import importlib.util, json, struct, sys, tempfile, unittest, zipfile, hashlib
 from pathlib import Path
 sys.dont_write_bytecode=True
 from pack_shell import extract_shell
+from check_invariance import check_invariance
 from build_shell import ROOT, source_id
 from audit_release import audit, APP_ICON
 
 class ShellTests(unittest.TestCase):
+    def test_vertex_pack_invariance(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p=Path(tmp)
+            with self.assertRaises(ValueError):check_invariance(p)
+            (p/'abc_b.json').write_text(json.dumps({'stage':'vs'}))
+            (p/'abc_b.metallib').write_bytes(b'correct compiled library')
+            report={'shaders':{'abc_b':{'ios':hashlib.sha256(b'correct compiled library').hexdigest()}}}
+            (p/'position-invariance.json').write_text(json.dumps(report))
+            self.assertEqual(check_invariance(p),1)
+            (p/'abc_b.metallib').write_bytes(b'stale library')
+            with self.assertRaises(ValueError):check_invariance(p)
+            (p/'def_b.json').write_text(json.dumps({'stage':'vs'}))
+            with self.assertRaises(ValueError):check_invariance(p)
+
     def test_archive_paths(self):
         for entry in ['../escape', '/absolute', 'Payload/ACNHMobile.app/../../escape', 'Payload/ACNHMobile.app/dir\\escape']:
             with self.subTest(entry=entry), tempfile.TemporaryDirectory() as tmp:

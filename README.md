@@ -1,5 +1,7 @@
 # ACNH Mobile
 
+v0.1.4 was reissued with vertex position-invariance verification for leaf flicker. Regenerate older shader packs before building.
+
 Latest update: **v0.1.4** fixes missing houses/bridges and blank NPC dialogue on developed islands by growing the Metal 3 buffer registry beyond 512 entries. Verified with a two-resident save on the Mac host and a 1537-buffer regression test; phone verification remains pending.
 
 Experimental native compatibility layer for Animal Crossing: New Horizons **3.0.3** on iPhone / iPad, with an Apple Silicon Mac development host. Based on the open-source D2R Mobile compatibility layer, with ACNH-specific graphics, input, storage and system-service support.

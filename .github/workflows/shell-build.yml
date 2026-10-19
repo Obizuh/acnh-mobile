@@ -10,6 +10,11 @@ on:
         description: 'New v* tag to create and publish from the selected branch'
         required: false
         type: string
+      replace_release:
+        description: 'Replace existing release tag and assets with the selected branch after a successful build'
+        required: false
+        default: false
+        type: boolean
       release_notes:
         description: 'Optional notes describing fixes in this release'
         required: false
@@ -48,7 +53,7 @@ jobs:
           PYTHON
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.release_tag && format('refs/tags/{0}', inputs.release_tag) || github.ref }}
+          ref: ${{ inputs.release_tag && !inputs.replace_release && format('refs/tags/{0}', inputs.release_tag) || github.ref }}
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -70,6 +75,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_NOTES: ${{ inputs.release_notes }}
+          REPLACE_RELEASE: ${{ inputs.replace_release }}
           NEW_RELEASE_TAG: ${{ inputs.new_release_tag }}
           RELEASE_TAG: ${{ inputs.new_release_tag || inputs.release_tag || github.event.release.tag_name || github.ref_name }}
         run: |
@@ -78,7 +84,14 @@ jobs:
           test -s "$RUNNER_TEMP/shell-output/shell-audit.json"
           test -s "$RUNNER_TEMP/shell-output/SHA256SUMS.txt"
           if [ -z "$NEW_RELEASE_TAG" ] && gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            if [ "$REPLACE_RELEASE" = true ]; then
+              gh api --method PATCH "repos/$GITHUB_REPOSITORY/git/refs/tags/$RELEASE_TAG" -f sha="$(git rev-parse HEAD)" -F force=true
+            fi
             gh release upload "$RELEASE_TAG" "$RUNNER_TEMP"/shell-output/* --clobber
+            if [ -n "$RELEASE_NOTES" ]; then
+              printf '%s\n' "$RELEASE_NOTES" > "$RUNNER_TEMP/replacement-notes.md"
+              gh release edit "$RELEASE_TAG" --notes-file "$RUNNER_TEMP/replacement-notes.md"
+            fi
             gh release edit "$RELEASE_TAG" --draft=false
           else
             printf '%s\n' '## 无游戏空壳 / Game-free shell' '' '仅包含运行框架，不能直接安装游玩。不含游戏程序、游戏资源、转换后的游戏着色器、key 或存档。' '' '使用者须用自己的文件生成完整 IPA，再签名安装。资源 .data 保持外置、直接读取。' '' 'This archive is build input, not a playable IPA. Bring your own game files. Phone signing and gameplay validation of the shell path remain pending.' '' '说明 / Guide: docs/SHELL.zh-CN.md and docs/SHELL.md in the matching source tag.' > "$RUNNER_TEMP/release-notes.md"
