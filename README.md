@@ -1,5 +1,7 @@
 # ACNH Mobile
 
+Current release: **v0.1.5 (build 17)** fixes the new-resident save-capacity query crash and hides the save workspace. Device verification remains pending.
+
 v0.1.4 was reissued with vertex position-invariance verification for leaf flicker. Regenerate older shader packs before building.
 
 Latest update: **v0.1.4** fixes missing houses/bridges and blank NPC dialogue on developed islands by growing the Metal 3 buffer registry beyond 512 entries. Verified with a two-resident save on the Mac host and a 1537-buffer regression test; phone verification remains pending.
