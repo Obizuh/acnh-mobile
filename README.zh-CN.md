@@ -71,3 +71,7 @@ python -m pip install -r requirements.txt
 ## 来源与许可
 
 基础：[D2R Mobile](https://github.com/jhaizhou-ops/d2r-mobile)。兼容层修改的上游版权声明保留于 [LICENSE](LICENSE)。离线准备工具选自同一 MIT 代码系的已有多游戏工具；空壳增加独立游戏程序装载和本地着色器链适配，普通内嵌构建仍使用原有路径。附加来源见 [第三方说明](THIRD_PARTY_NOTICES.md) 以及各第三方目录中的许可。项目与任天堂无隶属关系。
+
+### 安装包版本号
+
+统一修改 `config/version.json`：`version` 是安装列表显示的版本（当前 `0.1.4`），`build` 是内部构建号（当前 `15`，每次重打包递增）。本地 IPA 和 GitHub 空壳自动读取，发布标签应使用对应的 `v0.1.4`。已安装的旧包需重新构建并安装后才显示新版本。

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Local preparation only. No ROMs, keys or remote game downloads."""
-import argparse,os,shutil,subprocess,sys,json
+import argparse,os,shutil,subprocess,sys,json,re
 from check_invariance import check_invariance
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1];DM=ROOT/'dm';PROFILE=DM/'games/acnh'
@@ -67,7 +67,7 @@ def main():
   print('Prepared locally:',a.output)
  if a.command=='build':
   if not a.font.is_file():raise ValueError('Missing user-provided standard font: '+str(a.font))
-  chain=subprocess.check_output([sys.executable,DM/'gfx/tools/dmsh_chain.py'],env=env(),text=True).strip()
+  chain=re.search(r'#define DMSH_CHAIN "([0-9a-f]+)"',(PROFILE/'dmsh_chain.h').read_text()).group(1)
   check_invariance(a.shaders/('b-'+chain))
   e=env();e.update(PATCHED=str(a.patched.resolve()),ROMFS=str(a.romfs.resolve()),MSL_IOS=str(a.shaders.resolve()),W=str(a.work.resolve()),STD_FONT=str(a.font.resolve()),FONT_PY=sys.executable,DM_ENV_FILE=str(ROOT/'config/runtime.env'))
   a.output=a.output.resolve();a.output.parent.mkdir(parents=True,exist_ok=True)

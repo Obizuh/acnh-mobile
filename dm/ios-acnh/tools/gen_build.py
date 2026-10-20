@@ -47,3 +47,12 @@ for s in srcs:
 print('HEADER_SEARCH_PATHS = $(inherited) ' + ' '.join(f'"{d}"' for d in incs + dirs))
 print('OTHER_CFLAGS = $(inherited) ' + ' '.join(defs))
 print('DM_FRAMEWORKS = ' + ' '.join(f'-framework {f}' for f in fws if f != 'Cocoa'))
+
+# One version source for local IPAs and game-free shells.
+import json, re
+from pathlib import Path
+v=json.loads((Path(__file__).resolve().parents[3]/'config/version.json').read_text())
+if not re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+',v['version']) or type(v['build']) is not int or v['build']<1:
+    raise ValueError('Invalid config/version.json')
+print('MARKETING_VERSION = '+v['version'])
+print('CURRENT_PROJECT_VERSION = '+str(v['build']))
