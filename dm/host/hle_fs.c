@@ -16,6 +16,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <sys/stat.h>
+#include <sys/statvfs.h>
 #include <unistd.h>
 #include <stdio.h>
 #include <stdatomic.h>
@@ -112,6 +113,19 @@ static Result mount_ex(const char *name, const char *dir, int ro, int txn) {
     int txn_err = 0;
     if (txn) {
         char work[1100], neu[1100]; snprintf(work, sizeof work, "%s.work", dir); snprintf(neu, sizeof neu, "%s.new", dir);
+        // ACNH hides only the transaction workspace; committed save stays visible.
+        const char *hide = getenv("ACNH_HIDE_SAVE_WORK");
+        if (hide && !strcmp(hide, "1")) {
+            char legacy[1100]; strlcpy(legacy, work, sizeof legacy);
+            const char *base = strrchr(dir, '/'); base = base ? base + 1 : dir;
+            snprintf(work, sizeof work, "%.*s.%s.work", (int)(base - dir), dir, base);
+            // Old workspaces were already discarded on remount; rename first to hide
+            // legacy folders without touching the last committed save.
+            if (access(work, F_OK) && !access(legacy, F_OK) && rename(legacy, work))
+                LOG("Could not hide legacy save workspace: %s", strerror(errno));
+            else if (!access(work, F_OK) && !access(legacy, F_OK) && rm_tree(legacy))
+                LOG("Could not clear stale legacy save workspace: %s", strerror(errno));
+        }
         mkdir(dir, 0755);
         const char *why = NULL;
         if (!access(work, F_OK) && rm_tree(work)) why = "清不掉上次残留的工作目录";
@@ -495,6 +509,23 @@ HLE_FORCE("_ZN2nn2fs13MountSaveDataEPKcRKNS_7account3UidE", "fsp-srv；存档 �
     return mount_ex(name, dd, 0, 1);
 }
 // 动森的岛屿属于设备存档；复用同一事务机制，诊断目录由 DM_SAVE 明确指定。
+// The host has no Horizon save-data quota or separate journal reservation.
+// Report the backing volume capacity, with no guest-reserved journal bytes.
+// New-resident creation queries this before writing any island data.
+HLE_FORCE("_ZN2nn2fs21GetDeviceSaveDataSizeEPlS1_", "设备存档容量：宿主卷容量，无独立日志配额", Result, h_fs_GetDeviceSaveDataSize, int64_t *data_size, int64_t *journal_size) {
+    if (!data_size || !journal_size) return 0xe202;
+    *data_size = 0; *journal_size = 0;
+    const char *dir = getenv("DM_SAVE");
+    if (!dir || !*dir) return RES_FAIL;
+    struct statvfs v;
+    if (statvfs(dir, &v)) { LOG("fs device save capacity failed: %s", strerror(errno)); return RES_FAIL; }
+    uint64_t unit = v.f_frsize ? v.f_frsize : v.f_bsize;
+    if (!unit || v.f_blocks > INT64_MAX / unit) return RES_FAIL;
+    *data_size = (int64_t)(v.f_blocks * unit);
+    LOG("fs device save capacity: %lld bytes, host-managed journal", (long long)*data_size);
+    return RES_OK;
+}
+
 // ACNH islands use device save data; reuse transactional storage at the explicitly configured DM_SAVE diagnostic directory.
 HLE_FORCE("_ZN2nn2fs19MountDeviceSaveDataEPKc", "设备存档 → 宿主事务目录", Result, h_fs_MountDeviceSave, const char *name) {
     return h_fs_MountSave(name, NULL);

@@ -142,3 +142,6 @@ $(B)/t_caps: t_caps.c ../acnh_caps.inc ../hle_offline.c | $(B)
 
 $(B)/t_caps_pixels: t_caps_pixels.m ../../gfx/nvn/caps_photo.m | $(B)
 	clang -fobjc-arc -o $@ t_caps_pixels.m ../../gfx/nvn/caps_photo.m -framework Foundation -framework CoreGraphics -framework ImageIO -framework UniformTypeIdentifiers
+
+$(B)/t_hidden_save: t_hidden_save.c t_fs_stub.c ../hle_fs.c ../hle.h ../dm.h ../dm_i18n.c | $(B)
+	clang -O1 -g -Wno-unused-function -I.. $(GINC) -o $@ t_hidden_save.c t_fs_stub.c ../dm_i18n.c
