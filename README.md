@@ -1,6 +1,6 @@
 # ACNH Mobile
 
-Current release: **v0.1.5 (build 17)** fixes the new-resident save-capacity query crash and hides the save workspace. Device verification remains pending.
+Current release: **v0.1.6 (build 21)** adds only the map/UI alpha-test shader fix and packaging checks on top of v0.1.5 build 17. It does not include the separate CPU/GPU/memory optimization branch.
 
 v0.1.4 was reissued with vertex position-invariance verification for leaf flicker. Regenerate older shader packs before building.
 

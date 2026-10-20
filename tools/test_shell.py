@@ -4,11 +4,30 @@ import importlib.util, json, struct, sys, tempfile, unittest, zipfile, hashlib
 from pathlib import Path
 sys.dont_write_bytecode=True
 from pack_shell import extract_shell
-from check_invariance import check_invariance
+from check_invariance import check_invariance, check_alpha_test
 from build_shell import ROOT, source_id
 from audit_release import audit, APP_ICON
 
 class ShellTests(unittest.TestCase):
+    def test_ui_alpha_pack(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p=Path(tmp)
+            with self.assertRaises(ValueError):check_alpha_test(p)
+            keys=('1bbd8e6baf1769fe_b','9aaab9f97ef18924_b','5c518b71b8502c40_b')
+            manifest={}
+            for key in keys:
+                data=key.encode()
+                (p/(key+'.metallib')).write_bytes(data)
+                (p/(key+'.json')).write_text(json.dumps({'acnh_alpha_test':True,'acnh_alpha_test_buffer':30}))
+                manifest[key]={'ios':hashlib.sha256(data).hexdigest()}
+            (p/'alpha-test.json').write_text(json.dumps(manifest))
+            self.assertEqual(check_alpha_test(p),3)
+            lib=p/(keys[0]+'.metallib');lib.write_bytes(b'stale')
+            with self.assertRaises(ValueError):check_alpha_test(p)
+            lib.write_bytes(keys[0].encode())
+            (p/(keys[0]+'.json')).write_text('{}')
+            with self.assertRaises(ValueError):check_alpha_test(p)
+
     def test_vertex_pack_invariance(self):
         with tempfile.TemporaryDirectory() as tmp:
             p=Path(tmp)
