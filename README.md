@@ -1,6 +1,6 @@
 # ACNH Mobile
 
-Current release: **v0.1.7 (build 28)** adds raw amiibo `.bin` import, corrected model identification and pause/resume during file selection. Leaf and map/UI fixes are preserved. Physical NFC is a separate transport diagnostic; phone summoning remains unverified.
+Current release: **v0.1.8 (build 30)** saves game-camera photos to the iOS photo library with add-only permission. A confirmed save removes only that photo’s local copy; denied permission or a failed export keeps the local PNG. Existing photos are unchanged. Device verification remains pending.
 
 v0.1.4 was reissued with vertex position-invariance verification for leaf flicker. Regenerate older shader packs before building.
 
