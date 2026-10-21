@@ -1,0 +1,17 @@
+workflows:
+  acnh-shell:
+    name: ACNH Shell Build
+    max_build_duration: 60
+    instance_type: mac_mini_m2
+    environment:
+      xcode: "26.6"
+    scripts:
+      - name: Install XcodeGen
+        script: brew install xcodegen
+      - name: Build game-free shell
+        script: python3 tools/build_shell.py --work "$HOME/acnh-shell-work" --output "$CM_BUILD_DIR/shell-output"
+      - name: Package test IPA
+        script: cp "$CM_BUILD_DIR/shell-output/ACNHMobile-shell-build-input.zip" "$CM_BUILD_DIR/ACNHMobile-shell-test.ipa"
+    artifacts:
+      - shell-output/*
+      - ACNHMobile-shell-test.ipa
