@@ -80,7 +80,7 @@ static ACNHAmiiboFile *currentImport;
             if(ioError || coordinateError || !bytes){LOG("[amiibo-file] provider read failed");[self failed:@"文件读取失败。请先在“文件”App 中下载到本机，再重新选择。"];return;}
             int result=hle_nfp_import_file(self.token,bytes.bytes,bytes.length);
             LOG("[amiibo-file] import bytes=%lu result=%d",(unsigned long)bytes.length,result);
-            if(result==-2)[self failed:@"文件格式不符合原始 NTAG215 amiibo 数据。支持 532、540 或 572 字节的 .bin；不支持压缩包、密钥文件或文本格式。\n\n原文件未修改。"]; 
+            if(result==-2)[self failed:@"文件格式不符合原始 NTAG215 amiibo 数据。支持 532、540 或 572 字节的 .bin；不支持压缩包、密钥文件或文本格式。\n\n原文件未修改。"];
             if(result!=-2)[self resume];
             // -1 means the game stopped/restarted scanning; silently discard.
         });

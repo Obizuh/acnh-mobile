@@ -22,8 +22,11 @@ static void photoNotice(NSString *text) {
 }
 static BOOL photoHostHasPurpose(void) {
     // LiveContainer can replace mainBundle. TCC checks the actual signed host.
-    CFTypeRef (*create)(CFAllocatorRef)=dlsym(RTLD_DEFAULT,"SecTaskCreateFromSelf");
-    CFStringRef (*signingID)(CFTypeRef,CFErrorRef *)=dlsym(RTLD_DEFAULT,"SecTaskCopySigningIdentifier");
+    static void *security;static dispatch_once_t once;
+    dispatch_once(&once,^{security=dlopen("/System/Library/Frameworks/Security.framework/Security",RTLD_NOW|RTLD_LOCAL);});
+    if(!security)return NO;
+    CFTypeRef (*create)(CFAllocatorRef)=dlsym(security,"SecTaskCreateFromSelf");
+    CFStringRef (*signingID)(CFTypeRef,CFErrorRef *)=dlsym(security,"SecTaskCopySigningIdentifier");
     if(!create || !signingID)return NO;
     CFTypeRef task=create(kCFAllocatorDefault);if(!task)return NO;
     NSString *identifier=CFBridgingRelease(signingID(task,NULL));CFRelease(task);

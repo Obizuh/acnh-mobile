@@ -76,6 +76,7 @@ run: \
 	t_present_crop \
 	t_pso_skey \
 	t_refl \
+	t_render_cache \
 	t_reorder_chain \
 	t_rt_depth_ro \
 	t_rt_range \
@@ -94,6 +95,7 @@ run: \
 	./t_deswz_gpu
 	./t_pace
 	./t_refl
+	./t_render_cache
 	./t_hmap
 	./t_cover
 	./t_fuse_check
@@ -144,6 +146,9 @@ t_alpha_test: t_alpha_test.m ../../host/crash.c $(GFX) $(GFX_H)
 # Developed islands can exceed 512 live Metal buffers.
 t_m3_buffers: t_m3_buffers.m ../nvn/nvn_m3_buffers.h
 	clang -O1 -g -Wall -fobjc-arc -o $@ t_m3_buffers.m -framework Metal -framework Foundation
+
+t_render_cache: t_render_cache.c ../nvn/nvn_render_cache.h
+	clang -O1 -Wall -o $@ t_render_cache.c
 
 t_amiibo_pause: t_amiibo_pause.c ../nvn/hle_nvn.c ../../host/crash.c $(GFX) $(GFX_H)
 	clang $(CFLAGS) -I../../host/gen/acnh -I../../games/acnh -DDM_NVN_M3=1 -fobjc-arc -o $@ t_amiibo_pause.c ../../host/crash.c $(GFX) $(FW)

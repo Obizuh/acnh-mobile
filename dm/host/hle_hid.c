@@ -89,6 +89,7 @@ static void fill(NpadState *s, uint32_t id, uint32_t style) {
     b &= 0xffffull;
 #if !TARGET_OS_IPHONE
     uint64_t dm_acnh_live_buttons(void); b|=dm_acnh_live_buttons();
+    void dm_acnh_live_axes(int32_t *,int32_t *);dm_acnh_live_axes(&s->lx,&s->ly);
 #endif
     if (s->lx < -STICK_THRESH) b |= 1u << 16;
     if (s->ly > STICK_THRESH) b |= 1u << 17;

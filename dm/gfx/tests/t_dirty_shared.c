@@ -16,9 +16,15 @@ int main(void){
  // Recycle the earlier registry slot into a pool sharing an already protected
  // host page. The old implementation forgot that page's write protection.
  nvn_dirty_protect(a,pg);nvn_dirty_remove_range(tmp);nvn_dirty_add_range(adj,4096);
- uint64_t stamp=nvn_dirty_now();mem[4096]=42;
+ uint64_t stamp=nvn_dirty_now();
+ if(!nvn_dirty_clean(a,pg,stamp,stamp,stamp))return 24;
+ if(nvn_dirty_clean(tmp,pg,stamp,stamp,stamp))return 25;
+ mem[4096]=42;
  if(!nvn_dirty_since(a,pg,stamp)||!nvn_dirty_since(adj,4096,stamp))return 2;
+ if(nvn_dirty_clean(a,pg,stamp,stamp,nvn_dirty_now()))return 21;
+ if(nvn_dirty_clean(adj,4096,stamp,stamp,nvn_dirty_now()))return 22;
  nvn_dirty_remove_range(adj);
+ if(nvn_dirty_clean(adj,4096,0,0,nvn_dirty_now()))return 23;
  if(!nvn_dirty_tracked(a,pg))return 3;
  nvn_dirty_add_range(tmp,pg);
  pthread_t t;pthread_create(&t,0,writer,0);

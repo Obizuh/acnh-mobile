@@ -1,17 +1,15 @@
 # 不含游戏的空壳发布包
 
-`ACNHMobile-shell-build-input.zip` 只有 iOS 运行框架，不含游戏程序、游戏着色器、资源、密钥或存档，不能直接玩。它使用 ZIP 扩展名防止误当作安装包。
-
-仅把扩展名改成 IPA、仅向手机导入 `.data`，都不能补齐游戏程序。完整 IPA 需要用户在电脑上用自己的文件生成，并签名安装。
+公开附件是未签名、无游戏的空壳 IPA：`ACNHMobile-iOS26` 最低 iOS26；`ACNHMobile-iOS18-compat` 最低 iOS18，使用Metal3。两版均不含游戏程序、转换着色器、运行资源、密钥或存档。签名空壳、仅向手机导入 `.data` 都不能补齐游戏程序；完整游戏 IPA 仍需使用者在本地用自己持有的文件生成。
 
 ## 在 GitHub 生成空壳
 
-1. 把本版本源码完整提交到仓库，包括 `.github/workflows/shell-build.yml`。
-2. 打开 **Actions → Build game-free iOS shell → Run workflow**，选择 `main` 后运行。
-3. 完成后在该次运行底部 **Artifacts** 下载 `ACNHMobile-shell-build-input`。解开外层下载 ZIP，里面才是空壳 ZIP、内容检查报告与 SHA256SUMS。
-4. 如需 Releases：给对应源码提交创建 `v` 开头的标签，例如 `v1.0.0`。流程会在检查和构建成功后自动发布同标签的**预发布 Release**，并附上完整空壳、报告和校验文件，不必再手动发布。在 GitHub 页面发布版本也会触发构建。手动运行时填写 `release_tag`（必须是已有标签）同样会自动发布；留空则只生成 Artifact。
+1. 提交审计通过的公开源码，先准备好 `ios18-compat` 分支，并使两版版本与构建号一致。
+2. 打开 **Actions → Build game-free iOS shell → Run workflow**。两个标签字段留空只生成Actions附件。
+3. 下载 `ACNHMobile-dual-shell-v<版本>-build<构建>`，解开外层ZIP后得到两版空壳IPA、审计报告与SHA256SUMS。
+4. 版本标签 `v*` 或手动输入新标签会在两版均构建及核验成功后生成一个正式Release，只附两版IPA和共同SHA256SUMS。本次main首次推入0.1.21/构建34也会自动发布；已有标签/Release不会自动替换。
 
-流程使用 GitHub 的 `macos-26` 机器，只安装 XcodeGen，不接收游戏文件，不需要 Apple 证书、密钥或其他 Secrets。它不会在 GitHub 上构建含游戏的完整 IPA。
+流程在GitHub macos-26上安装公开构建依赖，严格核对版本、系统下限、源码指纹、ZIP和无游戏文件白名单。上传为草稿并重新下载核对哈希后才正式发布。不接收游戏、密钥或Apple签名证书；不因手动创建Release事件启动另一个争抢附件的流程。
 
 ## 用户在自己电脑上生成 IPA
 
@@ -26,7 +24,7 @@ python -m pip install -r requirements.txt
 ./setup.sh rewrite --exefs /path/to/ExeFS --output /path/to/private/patched
 ./setup.sh shaders --exefs /path/to/ExeFS --romfs /path/to/RomFS --output /path/to/private/shaders
 python tools/pack_shell.py \
-  --shell /path/to/ACNHMobile-shell-build-input.zip \
+  --shell /path/to/ACNHMobile-iOS26-v0.1.21-build34-shell-unsigned.ipa \
   --patched /path/to/private/patched \
   --shaders /path/to/private/shaders/ios \
   --font /path/to/standard.ttf \
@@ -46,3 +44,5 @@ python tools/build_shell.py --work /path/to/new-empty-work --output /path/to/she
 无需任何游戏文件。构建器严格检查空壳的文件清单、Bundle ID 和可执行文件，拒绝残留的游戏模块内嵌段。公开源码和空壳可发布；用于核对的私人 IPA、程序、着色器、字体、数据与存档不能发布。
 
 本版本已完成本地 iOS 编译、空壳内容检查和私人组包结构核对；空壳方式尚待手机签名安装和实际游玩验证。GitHub 托管构建需上传源码后查看首次运行结果。
+
+必须选择与空壳对应的主线或兼容源码分支，混用源码指纹会被拒绝。本地build_shell.py仍输出ACNHMobile-shell-build-input.zip，也可传给同一组装命令。

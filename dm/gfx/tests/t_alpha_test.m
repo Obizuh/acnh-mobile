@@ -12,7 +12,7 @@ int main(int argc,char**argv){@autoreleasepool{
  id<MTLBuffer>cb=[g_dev newBufferWithLength:65536 options:MTLResourceStorageModeShared];float*c=cb.contents;c[0]=c[1]=c[2]=c[3]=1;
  MTLTextureDescriptor*td=[MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA32Float width:1 height:1 mipmapped:NO];td.storageMode=MTLStorageModeShared;td.usage=MTLTextureUsageShaderRead;
  id<MTLTexture>noise=[g_dev newTextureWithDescriptor:td];float n[4]={1,1,1,1};[noise replaceRegion:MTLRegionMake2D(0,0,1,1) mipmapLevel:0 withBytes:n bytesPerRow:16];
- MTLSamplerDescriptor*sd=[MTLSamplerDescriptor new];id<MTLSamplerState>sam=[g_dev newSamplerStateWithDescriptor:sd];
+ MTLSamplerDescriptor*sd=[MTLSamplerDescriptor new];sd.supportArgumentBuffers=YES;id<MTLSamplerState>sam=[g_dev newSamplerStateWithDescriptor:sd];
  id<MTLTexture>tex[3];id<MTLBuffer>args[3];id<MTLArgumentEncoder>ae=[sh->fn newArgumentEncoderWithBufferIndex:0];
  for(int a=0;a<3;a++){tex[a]=[g_dev newTextureWithDescriptor:td];float pixel[4]={1,0,0,a*.5f};[tex[a] replaceRegion:MTLRegionMake2D(0,0,1,1) mipmapLevel:0 withBytes:pixel bytesPerRow:16];args[a]=[g_dev newBufferWithLength:ae.encodedLength options:MTLResourceStorageModeShared];[ae setArgumentBuffer:args[a] offset:0];[ae setBuffer:cb offset:0 atIndex:0];[ae setTexture:noise atIndex:1];[ae setSamplerState:sam atIndex:2];[ae setTexture:tex[a] atIndex:3];[ae setSamplerState:sam atIndex:4];}
  td=[MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA8Unorm width:24 height:2 mipmapped:NO];td.storageMode=MTLStorageModeShared;td.usage=MTLTextureUsageRenderTarget;id<MTLTexture>out=[g_dev newTextureWithDescriptor:td];

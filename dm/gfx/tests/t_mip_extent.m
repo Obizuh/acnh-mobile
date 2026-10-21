@@ -104,6 +104,25 @@ static void plane_case(const char *name,int stencil,int clear_only) {
 }
 int main(int argc,char **argv){@autoreleasepool{
     setvbuf(stdout,NULL,_IONBF,0);int stencil_only=argc>1&&!strcmp(argv[1],"--stencil-only");setenv("DM_NVN_TBDR",stencil_only?"1":"0",1);mtl_init();NSError *e=nil;
+    { arena_begin(); uint64_t saved_done=g_done;
+      for(int i=0;i<6;i++){ NvArena *item=[NvArena new];
+        item->buf=[g_dev newBufferWithLength:4<<20 options:MTLResourceStorageModeShared];
+        res_add(item->buf);item->fence=i==5?11:10;item->idle_since=1;
+        [g_arenas addObject:item]; }
+      g_done=10; g_arena_epoch=300; arena_trim();
+      EXPECT("闲置参数缓冲保留2块及在途1块",3,g_arenas.count);
+      EXPECT("回收3块共12MiB",3,g_arena_trimmed);
+      EXPECT("在途缓冲不回收",11,((NvArena *)g_arenas.lastObject)->fence);
+      NvArena *recent=g_arenas[g_arenas.count-2]; NvArena *reused=arena_new();
+      EXPECT("优先复用最近完成而跳过在途缓冲",1,reused==recent);
+      EXPECT("复用后闲置年龄清零",0,reused->idle_since);
+      res_remove(reused->buf);
+      for(NvArena *item in g_arenas)res_remove(item->buf);
+      [g_arenas removeAllObjects];g_done=saved_done;g_arena_epoch=0;g_arena_trimmed=0;
+    }
+
+
+
     id<MTLLibrary> lib=[g_dev newLibraryWithSource:@"#include <metal_stdlib>\nusing namespace metal;struct O{float4 p[[position]];float2 uv[[user(locn0)]];};\n"
       "vertex O v(uint n[[vertex_id]]){float2 p[3]={float2(-1,-1),float2(3,-1),float2(-1,3)};return {float4(p[n],.25,1),float2((p[n].x+1)/2,(1-p[n].y)/2)};}\n"
       "fragment float4 f(O o[[stage_in]]){return float4(o.uv.x<.4?1:0,o.uv.x<.4?0:1,o.uv.y<.4?0:1,1);}\n" options:nil error:&e];if(!lib){fprintf(stderr,"%s\n",e.localizedDescription.UTF8String);return 2;}
@@ -117,5 +136,22 @@ int main(int argc,char **argv){@autoreleasepool{
             snprintf(name,sizeof name,"clear_L%d",lv);colour_case(name,lv,1,1,0,0);}
         colour_case("partial_draw",1,3,0,0,0);colour_case("partial_clear_reject",1,3,1,0,0);colour_case("slot1_clear",1,1,1,1,0);
         if(argc==1){colour_case("default",1,0,0,0,0);colour_case("oversized",1,2,0,0,0);colour_case("MRT_min",0,0,0,0,1);plane_case("depth",0,0);plane_case("stencil",1,0);plane_case("depth_clear",0,1);plane_case("stencil_clear",1,1);}}
+
+    { up_begin(); size_t off[3], sizes[3]={3<<20,3<<20,6<<20}; id<MTLBuffer> staging[3];
+      for(int k=0;k<3;k++){staging[k]=up_alloc(sizes[k],&off[k]);
+        EXPECT("上传分配范围有效",1,off[k]+sizes[k]<=staging[k].length);}
+      EXPECT("上传分块容量按配置",up_block_size(),staging[0].length);
+      m4_end(g_up_ce);g_up_ce=nil;
+      id<MTLBuffer> readback=[g_dev newBufferWithLength:96 options:MTLResourceStorageModeShared];
+      id<MTLCommandBuffer> upload_cb=g_up_cb;id<MTLBlitCommandEncoder> blit=[upload_cb blitCommandEncoder];
+      for(int k=0;k<3;k++){
+        [blit fillBuffer:staging[k] range:NSMakeRange(off[k],sizes[k]) value:37+k];
+        [blit copyFromBuffer:staging[k] sourceOffset:off[k] toBuffer:readback destinationOffset:k*32 size:16];
+        [blit copyFromBuffer:staging[k] sourceOffset:off[k]+sizes[k]-16 toBuffer:readback destinationOffset:k*32+16 size:16];}
+      [blit endEncoding];up_flush();[upload_cb waitUntilCompleted];
+      EXPECT("上传批次GPU完成",MTLCommandBufferStatusCompleted,upload_cb.status);
+      for(int k=0;k<3;k++){int bad=0;for(int j=0;j<32;j++)bad|=((uint8_t*)readback.contents)[k*32+j]!=(37+k);
+        EXPECT("换块与大纹理首尾数据保持",0,bad);}
+    }
     printf("== %d 项，失败 %d ==\n",cases,failed);return failed!=0;
 }}

@@ -40,7 +40,7 @@ def main():
     a=ap.parse_args(); a.output=a.output.resolve(); a.work=a.work.resolve()
     if a.work.exists(): raise ValueError('Choose a new empty work path')
     a.work.mkdir(parents=True)
-    tree=a.work/'tree'; shutil.copytree(ROOT,tree,ignore=shutil.ignore_patterns('.git','.venv','__pycache__','Gen','gen','bin','obj','build','*.xcodeproj','*.xcworkspace','*.dSYM'))
+    tree=a.work/'tree'; shutil.copytree(ROOT,tree,ignore=shutil.ignore_patterns('.git','.venv','local','outputs','__pycache__','Gen','gen','bin','obj','build','*.xcodeproj','*.xcworkspace','*.dSYM'))
     ios=tree/'dm/ios-acnh'; gen=ios/'Gen'; (gen/'dm').mkdir(parents=True); (gen/'msl').mkdir()
     e=dict(os.environ,GAME='acnh',ACNH_RENDER_FLAGS='-DDM_NVN_M3=1',DM_BUNDLE_ID='org.acnhmobile.experimental',DM_DISPLAY_NAME='ACNH Mobile',DM_TEAM_ID='0000000000',DM_APP_CATEGORY='public.app-category.games')
     config=subprocess.check_output(['python3',ios/'tools/gen_build.py',tree/'dm/host',gen],env=e,text=True)

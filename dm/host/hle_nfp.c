@@ -7,7 +7,7 @@
 // Read-only raw NTAG215 import. ACNH imports TagInfo / Mount / ModelInfo only;
 // encrypted owner/application data is neither decrypted nor exposed.
 #define NFP_RES_TAG_NOT_FOUND (115u | 97u << 9)   // 模块 115（nfp）描述 97 | module 115 (nfp), description 97
-enum { NFP_STATE_INIT = 0, NFP_STATE_SEARCH = 1, NFP_STATE_FOUND = 2, NFP_STATE_MOUNTED = 4 };   
+enum { NFP_STATE_INIT = 0, NFP_STATE_SEARCH = 1, NFP_STATE_FOUND = 2, NFP_STATE_MOUNTED = 4 };
 typedef struct { uint32_t id; uint8_t reserved[4]; } NfpDeviceHandle;
 #define NFP_DEVICE_ID 0x4e465030u   // 'NFP0'
 static _Atomic int g_nfp_state;

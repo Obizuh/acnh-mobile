@@ -1,10 +1,13 @@
 # ACNH Mobile
 
-Current release: **v0.1.8 (build 30)** saves game-camera photos to the iOS photo library with add-only permission. A confirmed save removes only that photo’s local copy; denied permission or a failed export keeps the local PNG. Existing photos are unchanged. Device verification remains pending.
+Current version: **0.1.21 (build 34)**. Download the two game-free editions from [Releases](https://github.com/huajiaoshu520/acnh-mobile/releases).
 
-v0.1.4 was reissued with vertex position-invariance verification for leaf flicker. Regenerate older shader packs before building.
+- **ACNHMobile-iOS26**: mainline edition, minimum iOS 26.
+- **ACNHMobile-iOS18-compat**: Metal 3 compatibility edition, minimum iOS 18.
 
-Latest update: **v0.1.4** fixes missing houses/bridges and blank NPC dialogue on developed islands by growing the Metal 3 buffer registry beyond 512 entries. Verified with a two-resident save on the Mac host and a 1537-buffer regression test; phone verification remains pending.
+Both editions retain the intended graphics quality and features. The installation minimum does not mean every supported device has been tested. Public IPA downloads are game-free shells and require locally prepared owned runtime files.
+
+This version includes a sampler lifetime fix verified on an Apple M4 with Metal API Validation. Shovel discoloration/dark ground edges and sustained phone heating/frame drops remain unresolved. The long-duration 4/32 MiB upload comparison is incomplete; no stability or cooling advantage is claimed for 32 MiB.
 
 Experimental native compatibility layer for Animal Crossing: New Horizons **3.0.3** on iPhone / iPad, with an Apple Silicon Mac development host. Based on the open-source D2R Mobile compatibility layer, with ACNH-specific graphics, input, storage and system-service support.
 
@@ -12,7 +15,7 @@ Experimental native compatibility layer for Animal Crossing: New Horizons **3.0.
 
 [简体中文（完整说明）](README.zh-CN.md) · [Build](docs/BUILD.md) · [Game files](docs/GAME_FILES.md) · [Release contents](docs/DERIVED.md)
 
-Maintenance build 12, 2026-10-19. The iOS project currently targets iOS 26+ using the Metal 3 backend. This is experimental; complete gameplay and all device configurations have not been verified.
+Local preparation, 2026-10-22. The iOS project currently targets iOS 26+ using the Metal 3 backend. This is experimental; complete gameplay and all device configurations have not been verified.
 
 Current changes include direct `.data` access, save compatibility, local mailbox support, map alpha tests, vertex position invariance, native text input, touch controls, 30 fps/720p defaults, host timezone handling and bounded iPhone haptic feedback. Phone haptic feel still needs device verification.
 
@@ -22,7 +25,7 @@ GitHub shell builds and local IPA builds use the bundled project icon automatica
 
 ## Download or build a game-free shell
 
-Open **Actions → Build game-free iOS shell → Run workflow**. After it finishes, download the artifact and unpack it to obtain `ACNHMobile-shell-build-input.zip`. Version tags (`v*`) automatically publish a pre-release with the shell attached. To publish an existing tag manually, enter it in the workflow’s `release_tag` field; leaving that field empty creates an artifact only.
+Open **Actions → Build game-free iOS shell → Run workflow**. The artifact contains both unsigned, game-free IPA editions, an audit report and `SHA256SUMS.txt`. Version tags (`v*`) publish one formal Release only after both builds and audits pass. The first main push at 0.1.21/build34 also starts that publication automatically; an existing version is never overwritten. Manual runs with both tag fields empty produce artifacts only.
 
 The shell is **not directly playable or installable**. Use your own game files on an Apple Silicon Mac to prepare the program and shaders, then assemble and sign a private IPA. Existing `.data` resources stay external and are read without extraction. See [Shell guide](docs/SHELL.md) for the exact steps and current verification limits.
 

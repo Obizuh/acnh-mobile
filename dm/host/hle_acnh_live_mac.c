@@ -5,12 +5,23 @@
 #include <fcntl.h>
 #include <unistd.h>
 void dm_gfx_shot_at(long k,const char *path);
+static int32_t live_lx,live_ly;static uint64_t live_axis_until;
+void dm_acnh_live_axes(int32_t *lx,int32_t *ly){
+ if(now_ns()<live_axis_until){*lx=live_lx;*ly=live_ly;}
+}
 uint64_t dm_acnh_live_buttons(void){
  static int fd=-2;static uint64_t sequence,until,mask;static int touching;
  if(fd==-2){const char *p=getenv("ACNH_LIVE_KEYS");fd=p?open(p,O_RDONLY):-1;}
  if(fd<0)return 0;
  uint64_t command[5];uint64_t now=now_ns();
- if(pread(fd,command,sizeof command,0)==sizeof command && command[0]!=sequence){sequence=command[0];if(command[1]&(1ull<<62)){const char *path=getenv("ACNH_LIVE_SHOT");if(path)dm_gfx_shot_at(1,path);}mask=command[1]&0xffffffffu;until=now+command[2];if(touching){dm_touch_set(NULL,0);touching=0;}if(command[1]>>63){dm_touch t={.id=0,.x=(float)command[3]/1000000,.y=(float)command[4]/1000000};dm_touch_set(&t,1);touching=1;}LOG("ACNH live command %llu mask=%#llx",(unsigned long long)sequence,(unsigned long long)mask);}
+ if(pread(fd,command,sizeof command,0)==sizeof command && command[0]!=sequence){sequence=command[0];if(command[1]&(1ull<<62)){const char *path=getenv("ACNH_LIVE_SHOT");if(path)dm_gfx_shot_at(1,path);}mask=command[1]&0xffffffffu;until=now+command[2];
+ live_axis_until=0;
+ if(command[1]&(1ull<<61)){
+  int64_t x=(int64_t)command[3],y=(int64_t)command[4];
+  live_lx=(int32_t)(x<-32767?-32767:x>32767?32767:x);
+  live_ly=(int32_t)(y<-32767?-32767:y>32767?32767:y);
+  live_axis_until=until;
+ }if(touching){dm_touch_set(NULL,0);touching=0;}if(command[1]>>63){dm_touch t={.id=0,.x=(float)command[3]/1000000,.y=(float)command[4]/1000000};dm_touch_set(&t,1);touching=1;}LOG("ACNH live command %llu mask=%#llx",(unsigned long long)sequence,(unsigned long long)mask);}
  if(touching && now>=until){dm_touch_set(NULL,0);touching=0;}
  return now<until?mask:0;
 }

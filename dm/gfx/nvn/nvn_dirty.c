@@ -215,6 +215,20 @@ int nvn_dirty_since(const void *addr, size_t len, uint64_t stamp) {
     pthread_mutex_unlock(&g_slot_mu);
     return dirty;
 }
+int nvn_dirty_clean(const void *addr, size_t len, uint64_t stamp, uint64_t seen, uint64_t now) {
+    pthread_mutex_lock(&g_slot_mu);
+    range_t *r = find((uintptr_t)addr);
+    int clean = r && len <= r->limit - (uintptr_t)addr;
+    if (clean && now != seen) {
+        uintptr_t a = (uintptr_t)addr & ~(g_pg - 1), end = (uintptr_t)addr + len;
+        for (; a < end; a += g_pg) {
+            page_t *p = page_find(a, 0);
+            if (!p || atomic_load(&p->gen) > stamp) { clean = 0; break; }
+        }
+    }
+    pthread_mutex_unlock(&g_slot_mu);
+    return clean;
+}
 void nvn_dirty_slot_stats(int *live, int *used_slots, uint64_t *adds_total) {
     int n = atomic_load(&g_nr), active = 0;
     for (int i = 0; i < n; i++) active += atomic_load_explicit(&g_r[i].live, memory_order_acquire) != 0;

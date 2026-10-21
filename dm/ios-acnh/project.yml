@@ -73,7 +73,7 @@ targets:
       TARGETED_DEVICE_FAMILY: "1,2"
       ENABLE_BITCODE: NO
       GCC_C_LANGUAGE_STANDARD: gnu11
-      OTHER_CFLAGS: $(inherited) -mcpu=apple-a18   # 宿主汇编里有 LSE 原子指令，缺省基线不认 | The host assembly contains LSE atomic instructions, which the default baseline does not accept
+      OTHER_CFLAGS: $(inherited) -march=armv8.2-a+lse   # A12/A13 baseline, preserving LSE atomics without A18-only instructions.
       CLANG_ENABLE_OBJC_ARC: YES
       DEBUG_INFORMATION_FORMAT: dwarf
       GCC_WARN_INHIBIT_ALL_WARNINGS: YES
