@@ -30,7 +30,12 @@ workflows:
           brew install --cask dotnet-sdk
           python3 -m pip install --user lz4 capstone fonttools
           git clone -q --depth 1 https://github.com/SciresM/hactool.git "$HOME/hactool-src"
-          cd "$HOME/hactool-src" && cp config.mk.template config.mk && make -j4
+          cd "$HOME/hactool-src" && cp config.mk.template config.mk
+          sed -i.bak 's|fprintf(stderr, "Invalid BKTR layout!\n");|fprintf(stderr, "Invalid BKTR layout (patched: continuing)\n");|' nca.c
+          sed -i '/Invalid BKTR layout (patched: continuing)/{n;d}' nca.c
+          sed -i '/subsection_block->total_size != sb->subsection_header.offset/,/^        }$/d' nca.c
+          grep -c "patched: continuing" nca.c
+          make -j4
       - name: Fetch game assets
         script: |
           set -e
@@ -74,9 +79,8 @@ workflows:
           BASE_NCA=$(ls -S ncas_base/*.nca | head -1)
           UPD_NCA=$(ls -S ncas_upd/*.nca | head -1)
           echo "base program: $BASE_NCA ; update program: $UPD_NCA"
-          $HT -t nca --romfsdir romfs_base "$BASE_NCA"
           $HT -t nca --exefsdir exefs --basenca "$BASE_NCA" "$UPD_NCA"
-          $HT -t nca --romfsdir romfs --baseromfs romfs_base "$UPD_NCA"
+          $HT -t nca --romfsdir romfs --basenca "$BASE_NCA" "$UPD_NCA"
           ls exefs; ls romfs | head
       - name: Rewrite and shaders
         script: |
