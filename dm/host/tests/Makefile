@@ -145,3 +145,9 @@ $(B)/t_caps_pixels: t_caps_pixels.m ../../gfx/nvn/caps_photo.m | $(B)
 
 $(B)/t_hidden_save: t_hidden_save.c t_fs_stub.c ../hle_fs.c ../hle.h ../dm.h ../dm_i18n.c | $(B)
 	clang -O1 -g -Wno-unused-function -I.. $(GINC) -o $@ t_hidden_save.c t_fs_stub.c ../dm_i18n.c
+
+$(B)/t_nfp: t_nfp.c ../hle_nfp.c ../amiibo_file.h ../hle.h ../front.h | $(B)
+	clang -O1 -g -Wno-unused-function -I.. $(GINC) -o $@ t_nfp.c
+
+$(B)/t_amiibo_wait: t_amiibo_wait.c ../../ios-acnh/Sources/AmiiboImportWait.h | $(B)
+	clang -O1 -g -Wall -o $@ t_amiibo_wait.c

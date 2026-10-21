@@ -12,6 +12,9 @@ targets:
   DmIOS:
     type: application
     platform: iOS
+    dependencies:
+      - sdk: CoreNFC.framework
+      - sdk: Security.framework
     sources:
       - Sources
       - path: Gen/embed.S
@@ -28,6 +31,7 @@ targets:
     info:
       path: Sources/Info.plist
       properties:
+        NFCReaderUsageDescription: "只读检测你贴近手机的 NFC 卡片，用于验证 amiibo 读卡通道。"
         CFBundleDisplayName: ${DM_DISPLAY_NAME}   # 游戏档案 app_name（build_ipa.sh 设） | game profile app_name (set by build_ipa.sh)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         CFBundleShortVersionString: $(MARKETING_VERSION)
@@ -55,6 +59,7 @@ targets:
     entitlements:
       path: Sources/ACNH.entitlements
       properties:
+        com.apple.developer.nfc.readersession.formats: [TAG]
         com.apple.developer.kernel.increased-memory-limit: true
         com.apple.developer.kernel.extended-virtual-addressing: true
     settings:

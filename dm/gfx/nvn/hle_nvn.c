@@ -901,14 +901,24 @@ static pthread_cond_t g_susp_cv = PTHREAD_COND_INITIALIZER;
 static int g_susp, g_inflight_api;
 static void gfx_enter(void) { pthread_mutex_lock(&g_susp_mu); while (g_susp) pthread_cond_wait(&g_susp_cv, &g_susp_mu); g_inflight_api++; pthread_mutex_unlock(&g_susp_mu); }
 static void gfx_leave(void) { pthread_mutex_lock(&g_susp_mu); g_inflight_api--; pthread_cond_broadcast(&g_susp_cv); pthread_mutex_unlock(&g_susp_mu); }
-void dm_gfx_suspend(int on) {
+// Reasons compose: 0 = app lifecycle; 3 = amiibo document selection.
+// Returning from the background must not release a still-open picker.
+static unsigned g_susp_reasons;
+void dm_gfx_suspend_for(int reason,int on) {
+    if(reason<0 || reason>=32)return;
     pthread_mutex_lock(&g_susp_mu);
-    g_susp = on != 0;
-    if (on) while (g_inflight_api) pthread_cond_wait(&g_susp_cv, &g_susp_mu);
+    int before=g_susp;
+    if(on)g_susp_reasons|=1u<<reason;else g_susp_reasons&=~(1u<<reason);
+    g_susp=g_susp_reasons!=0;
+    int suspended=g_susp,changed=before!=g_susp;
+    if(suspended)while(g_inflight_api)pthread_cond_wait(&g_susp_cv,&g_susp_mu);
     else pthread_cond_broadcast(&g_susp_cv);
     pthread_mutex_unlock(&g_susp_mu);
-    if (on) { mtl_drain(); LOG("[nvn] 图形挂起：在途 GPU 工作已清空"); } else LOG("[nvn] 图形恢复");
+    if(changed && suspended){mtl_drain();LOG("[nvn] 图形挂起：在途 GPU 工作已清空（原因 %d）",reason);}
+    else if(changed)LOG("[nvn] 图形恢复（原因 %d）",reason);
 }
+void dm_gfx_suspend(int on) {dm_gfx_suspend_for(0,on);}
+
 NVN(nvnQueueSubmitCommands, void, NVNqueue *q, int n, const NVNcommandHandle *h) {
     gfx_enter();
     uint64_t t0 = now_ns(), c0 = clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID), i0, y0, s0 = thr_sys_ns(); thr_counts(&i0, &y0);

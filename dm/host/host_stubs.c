@@ -29,3 +29,9 @@ void dm_ui_rect(int *x, int *y, int *w, int *h) { *x = *y = *w = *h = 0; }
 // svc #0x80.. 宿主门：只有 D2R 的改写规则会造，本作的产物里不该出现
 // svc #0x80.. host gates: only D2R's rewrite rules create them; they should not appear in this game's build output
 uint64_t svc_host_call(int num, uint64_t *regs) { (void)regs; die("svc_host_call：本作没有宿主门 svc #%#x", num); }
+
+__attribute__((weak)) void front_nfc_probe_start(void) {}
+__attribute__((weak)) void front_nfc_probe_stop(void) {}
+
+__attribute__((weak)) void front_amiibo_file_start(uint64_t session) { (void)session; }
+__attribute__((weak)) void front_amiibo_file_stop(void) {}

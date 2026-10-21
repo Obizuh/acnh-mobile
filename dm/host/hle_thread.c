@@ -1,3 +1,4 @@
+#include "hle.h"
 // Horizon 内核的线程与同步 SVC，原生实现：每个客体线程 = 一个宿主 pthread，跑在 SDK 给的客体栈上。
 // SDK 的 nn::os 原样运行，只把它下面的「内核」换成宿主：
 //   线程   0x08 CreateThread 0x09 StartThread 0x0A ExitThread 0x0B SleepThread 0x0C/0x0D 优先级 0x0E/0x0F 核掩码
@@ -763,6 +764,19 @@ static uint32_t se_find(void *ev) {
     for (int i = 0; i < g_nse; i++) if (g_se[i].ev == ev) return g_se[i].wh;
     return 0;
 }
+void hle_destroy_system_event(void *ev) {
+    void (*destroy)(void *)=guest_sym("_ZN2nn2os18DestroySystemEventEPNS0_15SystemEventTypeE");
+    destroy(ev);
+    // The SDK clears the object and closes its handles. An address may be reused
+    // by the next NFC session, so it must no longer count as a live binding.
+    pthread_mutex_lock(&g_se_lock);
+    for (int i=0;i<g_nse;i++) if(g_se[i].ev==ev) {
+        g_se[i]=g_se[--g_nse];
+        break;
+    }
+    pthread_mutex_unlock(&g_se_lock);
+}
+HLE_FORCE("_ZN2nn2os18DestroySystemEventEPNS0_15SystemEventTypeE", "销毁后清理服务层宿主绑定，SDK销毁逻辑保持", void, h_os_DestroySystemEvent, void *ev) { hle_destroy_system_event(ev); }
 void hle_bind_system_event(void *ev, int autoclear) {      // 必须在客体线程上调（要执行 SDK 代码） | Must be called on a guest thread (it has to execute SDK code)
     pthread_mutex_lock(&g_se_lock); uint32_t wh = se_find(ev); pthread_mutex_unlock(&g_se_lock);
     if (wh) return;

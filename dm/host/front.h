@@ -45,3 +45,10 @@ void dm_touch_set(const dm_touch *t, int n);
 // Timing: when a save write fails (disk full etc.) within one of the game's save transactions (between two Commits), so that this Commit is refused and the previously committed save is unchanged, it is called once per refused transaction;
 // the next transaction that succeeds commits as usual, and the front end need not do any recovery. err = the first failing errno (ENOSPC = 28 means out of space). Called on the game thread; the front end switches to the main thread itself and must not block
 void front_save_failed(int err);
+
+// Optional read-only NFC transport diagnostic; no tag is exposed to the game.
+void front_nfc_probe_start(void);
+void front_nfc_probe_stop(void);
+
+void front_amiibo_file_start(uint64_t session);
+void front_amiibo_file_stop(void);
