@@ -1,4 +1,4 @@
-// Save the game's caps:su RGBA screenshot to local Documents/photos (no Photos permission).
+// Save locally first; the optional iOS frontend exports the completed PNG asynchronously.
 #import <Foundation/Foundation.h>
 #import <CoreGraphics/CoreGraphics.h>
 #import <ImageIO/ImageIO.h>
@@ -7,6 +7,7 @@
 #include <stdatomic.h>
 #include <time.h>
 #include <stdio.h>
+extern void front_photo_saved(const char *path) __attribute__((weak_import));
 int dm_caps_save_rgba(const void *pixels,size_t bytes,uint8_t entry[32]) {
  @autoreleasepool {
   size_t width=(bytes==1280u*720u*4u||bytes==1280u*768u*4u)?1280:(bytes==1920u*1080u*4u||bytes==1920u*1088u*4u)?1920:0;
@@ -33,6 +34,7 @@ int dm_caps_save_rgba(const void *pixels,size_t bytes,uint8_t entry[32]) {
   if(ok){memset(entry,0,32);uint64_t size=[NSFileManager.defaultManager attributesOfItemAtPath:path error:nil].fileSize;memcpy(entry,&size,8);
    uint64_t identifier=((uint64_t)now.tv_sec<<32)^now.tv_nsec^serial;memcpy(entry+8,&identifier,8);uint16_t year=local.tm_year+1900;memcpy(entry+16,&year,2);
    entry[18]=local.tm_mon+1;entry[19]=local.tm_mday;entry[20]=local.tm_hour;entry[21]=local.tm_min;entry[22]=local.tm_sec;entry[23]=serial;entry[24]=1;entry[31]=1;}
+  if(ok && front_photo_saved)front_photo_saved(path.UTF8String);
   fprintf(stderr,"[dm] CAPS local photo %zux%zu %s: %s\n",width,height,ok?"saved":"failed",ok?path.UTF8String:(error.localizedDescription.UTF8String?:"image encoding failed"));return ok;
  }
 }

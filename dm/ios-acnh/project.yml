@@ -13,6 +13,7 @@ targets:
     type: application
     platform: iOS
     dependencies:
+      - sdk: Photos.framework
       - sdk: CoreNFC.framework
       - sdk: Security.framework
     sources:
@@ -31,6 +32,7 @@ targets:
     info:
       path: Sources/Info.plist
       properties:
+        NSPhotoLibraryAddUsageDescription: "将游戏相机拍摄的照片保存到手机相册。"
         NFCReaderUsageDescription: "只读检测你贴近手机的 NFC 卡片，用于验证 amiibo 读卡通道。"
         CFBundleDisplayName: ${DM_DISPLAY_NAME}   # 游戏档案 app_name（build_ipa.sh 设） | game profile app_name (set by build_ipa.sh)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)

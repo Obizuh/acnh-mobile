@@ -52,3 +52,6 @@ void front_nfc_probe_stop(void);
 
 void front_amiibo_file_start(uint64_t session);
 void front_amiibo_file_stop(void);
+
+// Optional: copy the completed local photo path and export asynchronously on iOS.
+void front_photo_saved(const char *path);
