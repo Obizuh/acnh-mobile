@@ -3,6 +3,7 @@
 #import <Security/Security.h>
 #include <dlfcn.h>
 #include "dm.h"
+#include "PhotoExportCleanup.h"
 
 // All state stays on the main queue. Keep file URLs, never full-resolution images.
 static NSMutableArray<NSURL *> *pendingPhotos;
@@ -45,13 +46,17 @@ static void drainPhotos(void) {
         photoNotice(@"照片已存到应用内；允许添加照片后可保存到相册。");return;
     }
     NSURL *url=pendingPhotos.firstObject;[pendingPhotos removeObjectAtIndex:0];exportingPhoto=YES;
+    __block BOOL created=NO;
     [PHPhotoLibrary.sharedPhotoLibrary performChanges:^{
-        [PHAssetChangeRequest creationRequestForAssetFromImageAtFileURL:url];
+        created=[PHAssetChangeRequest creationRequestForAssetFromImageAtFileURL:url]!=nil;
     } completionHandler:^(BOOL success,NSError *error){
         dispatch_async(dispatch_get_main_queue(),^{
             exportingPhoto=NO;
-            LOG("[photo-library] export %s domain=%s code=%ld; local PNG retained",success?"saved":"failed",error.domain.UTF8String?:"none",(long)error.code);
-            photoNotice(success?@"照片已保存到手机相册":@"相册保存失败，照片已保留在应用内。");drainPhotos();
+            BOOL saved=success && created;
+            NSError *cleanupError=nil;BOOL removed=photo_export_cleanup(url,saved,&cleanupError);
+            LOG("[photo-library] export %s domain=%s code=%ld; local PNG %s",saved?"saved":"failed",error.domain.UTF8String?:"none",(long)error.code,removed?"removed":"retained");
+            if(saved && !removed)LOG("[photo-library] local cleanup failed code=%ld",(long)cleanupError.code);
+            photoNotice(saved?(removed?@"照片已保存到手机相册":@"照片已存入相册，应用内副本未能清理。"):@"相册保存失败，照片已保留在应用内。");drainPhotos();
         });
     }];
 }

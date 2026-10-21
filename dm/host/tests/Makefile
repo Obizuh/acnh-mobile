@@ -151,3 +151,6 @@ $(B)/t_nfp: t_nfp.c ../hle_nfp.c ../amiibo_file.h ../hle.h ../front.h | $(B)
 
 $(B)/t_amiibo_wait: t_amiibo_wait.c ../../ios-acnh/Sources/AmiiboImportWait.h | $(B)
 	clang -O1 -g -Wall -o $@ t_amiibo_wait.c
+
+$(B)/t_photo_cleanup: t_photo_cleanup.m ../../ios-acnh/Sources/PhotoExportCleanup.h | $(B)
+	clang -fobjc-arc -Wall -o $@ t_photo_cleanup.m -framework Foundation
