@@ -15,3 +15,78 @@ workflows:
     artifacts:
       - shell-output/*
       - ACNHMobile-shell-test.ipa
+  acnh-full:
+    name: ACNH Full Build
+    max_build_duration: 120
+    instance_type: mac_mini_m2
+    environment:
+      xcode: "26.6"
+      groups:
+        - acnh-assets
+    scripts:
+      - name: Install dependencies
+        script: |
+          brew install xcodegen zstd spirv-cross mbedtls p7zip
+          brew install --cask dotnet-sdk
+          python3 -m pip install --user lz4 capstone fonttools
+          git clone -q --depth 1 https://github.com/SciresM/hactool.git "$HOME/hactool-src"
+          cd "$HOME/hactool-src" && cp config.mk.template config.mk && make -j4
+      - name: Fetch game assets
+        script: |
+          set -e
+          mkdir -p "$HOME/acnh" "$HOME/.switch"
+          cd "$HOME/acnh"
+          curl -fL -o base.7z "$ACNH_ASSET_BASE/up1/1_8s4DM2K6_o_d6693c982cb947d363"
+          curl -fL -o upd303.zip "$ACNH_ASSET_BASE/work/acnh303.zip"
+          curl -fL -o "$HOME/.switch/prod.keys" "$ACNH_ASSET_BASE/work/keys/prod_hactool.keys"
+          curl -fL -o "$HOME/.switch/title.keys" "$ACNH_ASSET_BASE/work/keys/title.keys"
+          curl -fL -o font.ttf "$ACNH_ASSET_BASE/work/fonts/NotoSansSC.ttf"
+          7z x -y base.7z
+          unzip -o upd303.zip
+          ls -la
+      - name: Split NSPs into NCAs
+        script: |
+          python3 - <<'PYEOF'
+          import struct, glob, os
+          def split(nsp, outdir):
+              os.makedirs(outdir, exist_ok=True)
+              with open(nsp,'rb') as f: d=f.read()
+              assert d[:4]==b'PFS0'
+              n=struct.unpack_from('<I',d,4)[0]; st=struct.unpack_from('<I',d,8)[0]
+              hdr=16+n*24; strtab=d[hdr:hdr+st]
+              for i in range(n):
+                  off,size,no=struct.unpack_from('<QQI',d,16+i*24)
+                  name=strtab[no:strtab.index(b'\x00',no)].decode()
+                  if name.endswith('.nca'):
+                      open(os.path.join(outdir,name),'wb').write(d[hdr+st+off:hdr+st+off+size])
+                      print(outdir, name, size)
+          import os
+          home=os.path.expanduser('~/acnh')
+          base=[x for x in glob.glob(home+'/*.nsp') if '2326000' in x][0]
+          upd=[x for x in glob.glob(home+'/*.nsp') if '2326800' in x][0]
+          split(base, home+'/ncas_base'); split(upd, home+'/ncas_upd')
+          PYEOF
+      - name: Decrypt ExeFS and RomFS (update merged over base)
+        script: |
+          set -e
+          HT="$HOME/hactool-src/hactool"
+          cd "$HOME/acnh"
+          BASE_NCA=$(ls -S ncas_base/*.nca | head -1)
+          UPD_NCA=$(ls -S ncas_upd/*.nca | head -1)
+          echo "base program: $BASE_NCA ; update program: $UPD_NCA"
+          $HT -t nca --romfsdir romfs_base "$BASE_NCA"
+          $HT -t nca --exefsdir exefs --basenca "$BASE_NCA" "$UPD_NCA"
+          $HT -t nca --romfsdir romfs --baseromfs romfs_base "$UPD_NCA"
+          ls exefs; ls romfs | head
+      - name: Rewrite and shaders
+        script: |
+          cd "$CM_BUILD_DIR"
+          ./setup.sh rewrite --exefs "$HOME/acnh/exefs" --output "$CM_BUILD_DIR/patched"
+          ./setup.sh shaders --exefs "$HOME/acnh/exefs" --romfs "$HOME/acnh/romfs" --output "$CM_BUILD_DIR/shaders"
+      - name: Build shell and pack IPA
+        script: |
+          cd "$CM_BUILD_DIR"
+          python3 tools/build_shell.py --work "$HOME/acnh-shell-work" --output "$HOME/acnh/shell-output"
+          python3 tools/pack_shell.py --shell "$HOME/acnh/shell-output/ACNHMobile-shell-build-input.zip" --patched "$CM_BUILD_DIR/patched" --shaders "$CM_BUILD_DIR/shaders/ios" --font "$HOME/acnh/font.ttf" --output "$CM_BUILD_DIR/ACNHMobile-unsigned.ipa"
+    artifacts:
+      - ACNHMobile-unsigned.ipa
