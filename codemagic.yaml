@@ -31,9 +31,19 @@ workflows:
           python3 -m pip install --user lz4 capstone fonttools
           git clone -q --depth 1 https://github.com/SciresM/hactool.git "$HOME/hactool-src"
           cd "$HOME/hactool-src" && cp config.mk.template config.mk
-          sed -i.bak 's|fprintf(stderr, "Invalid BKTR layout!\n");|fprintf(stderr, "Invalid BKTR layout (patched: continuing)\n");|' nca.c
-          sed -i '/Invalid BKTR layout (patched: continuing)/{n;d}' nca.c
-          sed -i '/subsection_block->total_size != sb->subsection_header.offset/,/^        }$/d' nca.c
+          python3 - <<'PYEOF'
+          import pathlib
+          p = pathlib.Path('nca.c')
+          s = p.read_text()
+          a = r'fprintf(stderr, "Invalid BKTR layout!\n");' + '\n            exit(EXIT_FAILURE);'
+          assert s.count(a) == 1, 'anchor A mismatch'
+          s = s.replace(a, r'fprintf(stderr, "Invalid BKTR layout (patched: continuing)\n");')
+          b = '        if (ctx->bktr_ctx.subsection_block->total_size != sb->subsection_header.offset) {\n            free(relocs);\n            free(subs);\n            ctx->bktr_ctx.relocation_block = NULL;\n            ctx->bktr_ctx.subsection_block = NULL;\n            ctx->superblock_hash_validity = VALIDITY_INVALID;\n            return;\n        }\n'
+          assert s.count(b) == 1, 'anchor B mismatch'
+          s = s.replace(b, '')
+          p.write_text(s)
+          print('nca.c patched OK')
+          PYEOF
           grep -c "patched: continuing" nca.c
           make -j4
       - name: Fetch game assets
