@@ -92,6 +92,22 @@ workflows:
           $HT -t nca --exefsdir exefs --basenca "$BASE_NCA" "$UPD_NCA"
           $HT -t nca --romfsdir romfs --basenca "$BASE_NCA" "$UPD_NCA"
           ls exefs; ls romfs | head
+      - name: Install Metal toolchain
+        script: |
+          set -e
+          if ! xcrun -sdk macosx metal --version 2>/dev/null | grep -qi metal; then
+            xcodebuild -downloadComponent MetalToolchain
+            dmg=$(ls /System/Library/AssetsV2/com_apple_MobileAsset_MetalToolchain/*/AssetData/Restore/*.dmg | head -1)
+            echo "asset dmg: $dmg"
+            mnt=$(mktemp -d)
+            hdiutil attach "$dmg" -mountpoint "$mnt" -nobrowse
+            tc=$(find "$mnt" -maxdepth 3 -name "*.xctoolchain" | head -1)
+            echo "toolchain: $tc"
+            sudo cp -R "$tc" /Library/Developer/Toolchains/
+            hdiutil detach "$mnt" || true
+          fi
+          xcrun -sdk macosx metal --version
+          xcrun -sdk iphoneos metal --version
       - name: Rewrite and shaders
         script: |
           cd "$CM_BUILD_DIR"
