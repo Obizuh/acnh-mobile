@@ -6,6 +6,7 @@ from pack_shell import extract_shell
 from build_shell import ROOT,audit_app,source_id
 out=Path(sys.argv[1]);v=json.loads((ROOT/'config/version.json').read_text())
 ipa=out/('ACNHMobile-iOS26-v'+v['version']+'-build'+str(v['build'])+'-shell-unsigned.ipa')
+assert {p.name for p in out.iterdir()}=={ipa.name,'shell-audit.json','SHA256SUMS.txt'},'Unexpected or stale release assets'
 for line in (out/'SHA256SUMS.txt').read_text().splitlines():
     digest,name=line.split('  ',1)
     assert Path(name).name==name and hashlib.sha256((out/name).read_bytes()).hexdigest()==digest,'Checksum mismatch'

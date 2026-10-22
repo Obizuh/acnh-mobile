@@ -8,7 +8,7 @@
 
 ## 下载与使用
 
-[Releases](https://github.com/huajiaoshu520/acnh-mobile/releases) 提供未签名的**无游戏空壳 IPA**、同内容的构建输入 ZIP、审计报告和 SHA256 校验文件。
+[Releases](https://github.com/huajiaoshu520/acnh-mobile/releases) 提供未签名的**无游戏空壳 IPA**、审计报告和 SHA256 校验文件。
 
 空壳不含游戏程序、游戏数据、转换后的游戏着色器、key、存档或字体。项目图标是唯一的识别图片。空壳不能直接游玩，仅导入 `.data` 也无法启动；需要在电脑上使用自己的游戏程序、官方配套着色器和字体生成私人完整 IPA，再整包签名。
 

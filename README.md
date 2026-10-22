@@ -12,7 +12,7 @@ This update includes the official NVN command-recording boundary and multichanne
 
 ## Downloads
 
-[Releases](https://github.com/huajiaoshu520/acnh-mobile/releases) contains an **unsigned, game-free shell IPA**, its equivalent build-input ZIP, audit report and SHA256 checksums. It contains no game program, game data, translated game shaders, keys, saves or fonts. The project app icon is the sole artwork exception. A shell alone cannot play the game; importing `.data` alone is insufficient.
+[Releases](https://github.com/huajiaoshu520/acnh-mobile/releases) contains an **unsigned, game-free shell IPA**, audit report and SHA256 checksums. It contains no game program, game data, translated game shaders, keys, saves or fonts. The project app icon is the sole artwork exception. A shell alone cannot play the game; importing `.data` alone is insufficient.
 
 Use an Apple Silicon Mac and your own rewritten 3.0.3 modules, complete matching official iOS shader cache, RomFS and font to generate a private IPA. Sign the entire resulting package, including Guest.framework when using shell assembly. Do not upload private, game-containing IPA files.
 
