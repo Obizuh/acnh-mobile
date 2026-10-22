@@ -7,8 +7,10 @@
 #include "front.h"
 #include "AcnhTouchLogic.h"
 #include "AcnhTextDetect.h"
-enum { B_A=0,B_B,B_X,B_Y,B_LS,B_RS,B_L,B_R,B_ZL,B_ZR,B_PLUS,B_MINUS,B_LEFT,B_UP,B_RIGHT,B_DOWN,B_N };
+enum { B_A=0,B_B,B_X,B_Y,B_LS,B_RS,B_L,B_R,B_ZL,B_ZR,B_PLUS,B_MINUS,B_LEFT,B_UP,B_RIGHT,B_DOWN,B_L_TOP,B_N };
 _Static_assert(B_UP==13 && B_A==0,"Tool-wheel input bit mapping");
+// Both visible L controls send the same Switch button.
+static int inputButton(int button){return button==B_L_TOP?B_L:button;}
 enum { C_NONE=0,C_STICK,C_CAMERA,C_BTN,C_TOOL };
 static pthread_mutex_t g_mu=PTHREAD_MUTEX_INITIALIZER;
 static uint64_t g_touch_btn,g_pad_btn;
@@ -70,8 +72,8 @@ static __weak DmGamepad *g_view;
   for(int b=0;b<B_N;b++){
    if(b==B_LS)continue;_key[b]=acnhControlOutline(self.layer);
    if(b==B_RS)continue;
-   if(b==B_R||b==B_PLUS||b==B_MINUS){
-    CATextLayer *t=[CATextLayer layer];t.string=b==B_L?@"L":b==B_R?@"R":b==B_PLUS?@"+":@"−";t.alignmentMode=kCAAlignmentCenter;t.contentsScale=UIScreen.mainScreen.scale;t.foregroundColor=[UIColor colorWithWhite:1 alpha:.5].CGColor;[_key[b] addSublayer:t];_label[b]=t;
+   if(b==B_L_TOP||b==B_R||b==B_PLUS||b==B_MINUS){
+    CATextLayer *t=[CATextLayer layer];t.string=b==B_L_TOP?@"L":b==B_R?@"R":b==B_PLUS?@"+":@"−";t.alignmentMode=kCAAlignmentCenter;t.contentsScale=UIScreen.mainScreen.scale;t.foregroundColor=[UIColor colorWithWhite:1 alpha:.5].CGColor;[_key[b] addSublayer:t];_label[b]=t;
    }else _glyph[b]=glyph(_key[b],b);
   }
   _rightKnob=acnhControlOutline(self.layer);_glyph[B_RS]=glyph(_rightKnob,B_RS);
@@ -82,6 +84,7 @@ static __weak DmGamepad *g_view;
 }
 - (CGFloat)radius:(int)b{
  CGFloat h=self.bounds.size.height;
+ if(b==B_L_TOP)return MIN(20,MAX(14,h*.0324));
  if(b==B_A)return MAX(28,h*.074);
  if(b==B_RS)return MAX(24,h*.0565);
  if(b==B_L)return MAX(20,h*.0481);
@@ -95,6 +98,11 @@ static __weak DmGamepad *g_view;
  return CGPointMake(MAX(CGRectGetMinX(r)+m,MIN(CGRectGetMaxX(r)-m,x*self.bounds.size.width)),MAX(CGRectGetMinY(r)+m,MIN(CGRectGetMaxY(r)-m,y*self.bounds.size.height)));
 }
 - (CGPoint)buttonCenter:(int)b{
+ if(b==B_L_TOP){
+  CGPoint minus=[self buttonCenter:B_MINUS];CGFloat radius=[self radius:b];
+  CGRect safe=UIEdgeInsetsInsetRect(self.bounds,self.safeAreaInsets);
+  return CGPointMake(MIN(CGRectGetMaxX(safe)-radius-3,minus.x+[self radius:B_MINUS]+radius+12),minus.y);
+ }
  CGFloat x=0,y=0;
  switch(b){
  case B_A:x=.919;y=.792;break;case B_B:x=.785;y=.775;break;case B_X:x=.875;y=.435;break;case B_Y:x=.811;y=.592;break;
@@ -121,7 +129,7 @@ static __weak DmGamepad *g_view;
 }
 - (void)cancelTool{_toolTouch=nil;acnh_wheel_cancel(&_wheel);[_toolLink invalidate];_toolLink=nil;}
 - (void)recompute{
- uint64_t buttons=0;for(UITouch *t in _owner){uint64_t owner=[_owner objectForKey:t].unsignedLongLongValue;if((owner&255)==C_BTN)buttons|=1ull<<(owner>>8);}
+ uint64_t buttons=0;for(UITouch *t in _owner){uint64_t owner=[_owner objectForKey:t].unsignedLongLongValue;if((owner&255)==C_BTN)buttons|=1ull<<inputButton((int)(owner>>8));}
  AcnhAxis left=_stick?acnh_axis(_stickNow.x-self.stickHome.x,_stickNow.y-self.stickHome.y,self.stickR):(AcnhAxis){0};
  CGPoint rc=[self buttonCenter:B_RS];AcnhAxis right=_camera?acnh_axis(_cameraNow.x-rc.x,_cameraNow.y-rc.y,[self radius:B_RS]):(AcnhAxis){0};
  AcnhWheelOutput tool=acnh_wheel_sample(&_wheel,CACurrentMediaTime());if(tool.active){buttons|=tool.buttons;left=tool.axis;}
@@ -225,9 +233,9 @@ static __weak DmGamepad *g_view;
 - (void)refresh{
  [CATransaction begin];[CATransaction setDisableActions:YES];
  for(int b=0;b<B_N;b++)if(_key[b]){
-  BOOL on=(_btnBits&(1ull<<b))!=0;if(b==B_UP&&_wheel.active)on=YES;if(b==B_RS)on=_camera!=nil;
-  _key[b].fillColor=[UIColor colorWithWhite:on?1:0 alpha:on?.30:(b>=B_LEFT?.10:.15)].CGColor;
-  _key[b].strokeColor=[UIColor colorWithRed:.92 green:.87 blue:.71 alpha:b>=B_LEFT?.44:.60].CGColor;
+  BOOL on=(_btnBits&(1ull<<inputButton(b)))!=0;if(b==B_UP&&_wheel.active)on=YES;if(b==B_RS)on=_camera!=nil;
+  _key[b].fillColor=[UIColor colorWithWhite:on?1:0 alpha:on?.30:(b>=B_LEFT&&b<=B_DOWN?.10:.15)].CGColor;
+  _key[b].strokeColor=[UIColor colorWithRed:.92 green:.87 blue:.71 alpha:b>=B_LEFT&&b<=B_DOWN?.44:.60].CGColor;
   _glyph[b].strokeColor=[UIColor colorWithWhite:on?0:1 alpha:on?.8:.8].CGColor;
  }
  CGPoint h=self.stickHome;CGFloat dx=_stick?_stickNow.x-h.x:0,dy=_stick?_stickNow.y-h.y:0,n=hypot(dx,dy),r=self.stickR;
