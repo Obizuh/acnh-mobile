@@ -2,166 +2,71 @@ name: Build game-free iOS shell
 on:
   workflow_dispatch:
     inputs:
-      release_tag:
-        description: 'Unpublished existing version tag; blank for artifact-only builds'
-        type: string
-        required: false
-      new_release_tag:
-        description: 'New version tag to publish after both shells pass audit'
-        type: string
-        required: false
-      release_notes:
-        description: 'Optional public notes appended to version release notes'
-        type: string
-        required: false
+      publish:
+        description: Publish a new release after the build and audits pass
+        type: boolean
+        default: false
   push:
-    branches: [main]
     tags: ['v*']
 permissions:
   contents: read
 concurrency:
-  group: dual-shell-${{ inputs.new_release_tag || inputs.release_tag || github.ref }}
+  group: official-shell-${{ github.ref }}
   cancel-in-progress: false
 jobs:
   shell:
     runs-on: macos-26
-    timeout-minutes: 60
+    timeout-minutes: 45
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: ${{ inputs.release_tag || github.sha }}
-          path: src/main
-          persist-credentials: false
-      - uses: actions/checkout@v4
-        with:
-          ref: ios18-compat
-          path: src/compat
-          persist-credentials: false
-      - name: Validate shared release version and reject existing releases
-        working-directory: src/main
-        env:
-          GH_TOKEN: ${{ github.token }}
-          NEW_TAG: ${{ inputs.new_release_tag }}
-          EXISTING_TAG: ${{ inputs.release_tag }}
-          PUSH_TAG: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
-          AUTO_MAIN: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
-        run: |
-          python3 - <<'PYTHON'
-          import json,os,re,subprocess,urllib.request,urllib.error
-          from pathlib import Path
-          v=json.loads(Path('config/version.json').read_text())
-          if json.loads(Path('../compat/config/version.json').read_text())!=v:
-              raise SystemExit('Edition versions/builds differ')
-          if os.environ['NEW_TAG'] and os.environ['EXISTING_TAG']:
-              raise SystemExit('Choose only one release tag field')
-          tag=os.environ['NEW_TAG'] or os.environ['EXISTING_TAG'] or os.environ['PUSH_TAG']
-          auto=os.environ['AUTO_MAIN']=='true'
-          def skip(message):
-              print(message)
-              with open(os.environ['GITHUB_ENV'],'a')as f:f.write('DO_BUILD=false\nRELEASE_TAG=\n')
-              raise SystemExit(0)
-          if auto:
-              if v!={'version':'0.1.21','build':34}:skip('Automatic dual release is pinned to 0.1.21/build34')
-              tag='v0.1.21'
-              if subprocess.check_output(['git','ls-remote','origin','refs/tags/'+tag],text=True).strip():
-                  skip('Version tag already exists; no replacement attempted')
-          if tag and (tag!='v'+v['version'] or not re.fullmatch(r'v[0-9]+(?:\.[0-9]+){2}',tag)):
-              raise SystemExit('Release tag and shared app version must match')
-          if os.environ['NEW_TAG']:
-              refs=subprocess.check_output(['git','ls-remote','origin','refs/tags/'+tag],text=True)
-              if refs.strip():raise SystemExit('New tag already exists; refusing overwrite')
-          if tag:
-              q=urllib.request.Request('https://api.github.com/repos/'+os.environ['GITHUB_REPOSITORY']+'/releases/tags/'+tag,
-                 headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json'})
-              try:
-                  urllib.request.urlopen(q).close()
-              except urllib.error.HTTPError as e:
-                  if e.code!=404:raise SystemExit('Release permission check failed: HTTP '+str(e.code))
-              else:
-                  if auto:skip('Release already exists; no replacement attempted')
-                  raise SystemExit('Release already exists; refusing overwrite')
-          with open(os.environ['GITHUB_ENV'],'a')as f:
-              f.write('RELEASE_TAG='+tag+'\nAPP_VERSION='+v['version']+'\nAPP_BUILD='+str(v['build'])+'\n')
-          PYTHON
       - uses: actions/setup-python@v5
-        if: env.DO_BUILD != 'false'
         with:
           python-version: '3.12'
-      - name: Install public build dependencies
-        if: env.DO_BUILD != 'false'
+      - name: Validate version and publication target
+        env:
+          SHOULD_PUBLISH: ${{ github.ref_type == 'tag' || inputs.publish }}
         run: |
-          python -m pip install -r src/main/requirements.txt
-          brew install xcodegen
-      - name: Audit both public source trees and test shell packaging
-        if: env.DO_BUILD != 'false'
+          python3 - <<'PY'
+          import json,os,re
+          v=json.load(open('config/version.json'))
+          assert re.fullmatch(r'[0-9]+(?:\.[0-9]+){2}',v['version'])
+          tag='v'+v['version']
+          if os.environ['GITHUB_REF_TYPE']=='tag':assert os.environ['GITHUB_REF_NAME']==tag
+          elif os.environ['SHOULD_PUBLISH']=='true':assert os.environ['GITHUB_REF_NAME']=='main','Publish from main only'
+          with open(os.environ['GITHUB_ENV'],'a') as f:
+              f.write('RELEASE_TAG='+tag+'\nAPP_VERSION='+v['version']+'\nAPP_BUILD='+str(v['build'])+'\n')
+          PY
+      - name: Audit source and test packaging
         run: |
-          python src/main/tools/audit_release.py src/main
-          python src/compat/tools/audit_release.py src/compat
-          (cd src/main && python tools/test_shell.py)
-          (cd src/main && python tools/test_dual_shell_release.py)
-          (cd src/compat && python tools/test_shell.py)
-      - name: Build iOS26 mainline and iOS18 compatibility shells
-        if: env.DO_BUILD != 'false'
-        run: |
-          python src/main/tools/build_shell.py --work "$RUNNER_TEMP/ios26-build" --output "$RUNNER_TEMP/ios26-output"
-          python src/compat/tools/build_shell.py --work "$RUNNER_TEMP/ios18-build" --output "$RUNNER_TEMP/ios18-output"
-      - name: Verify versions, source fingerprints, Mach-O minima and game-free contents
-        if: env.DO_BUILD != 'false'
-        run: |
-          python src/main/tools/prepare_dual_shell_release.py \
-            --main-source src/main --compat-source src/compat \
-            --main-archive "$RUNNER_TEMP/ios26-output/ACNHMobile-shell-build-input.zip" \
-            --compat-archive "$RUNNER_TEMP/ios18-output/ACNHMobile-shell-build-input.zip" \
-            --output "$RUNNER_TEMP/dual-shell-assets"
+          python tools/audit_release.py .
+          python tools/test_shell.py
+      - name: Install project generator
+        run: brew install xcodegen
+      - name: Build official Metal 4 shell without game files
+        run: python tools/build_shell.py --work "$RUNNER_TEMP/shell-work" --output "$RUNNER_TEMP/shell-output"
+      - name: Verify exact IPA contents, metadata and Metal 4 build
+        run: python tools/verify_shell.py "$RUNNER_TEMP/shell-output"
       - uses: actions/upload-artifact@v4
-        if: env.DO_BUILD != 'false'
         with:
-          name: ACNHMobile-dual-shell-v${{ env.APP_VERSION }}-build${{ env.APP_BUILD }}
-          path: ${{ runner.temp }}/dual-shell-assets/*
+          name: ACNHMobile-iOS26-v${{ env.APP_VERSION }}-build${{ env.APP_BUILD }}-shell
+          path: ${{ runner.temp }}/shell-output/*
           if-no-files-found: error
-      - name: Publish one formal release with exactly the two shells and SHA256SUMS
-        if: env.RELEASE_TAG != ''
-        working-directory: src/main
+      - name: Publish verified shell from main
+        if: github.ref_type == 'tag' || inputs.publish
         env:
           GH_TOKEN: ${{ github.token }}
-          EXTRA_NOTES: ${{ inputs.release_notes }}
         run: |
           set -euo pipefail
-          python3 - <<'PYTHON'
-          from pathlib import Path
-          import os
-          p=Path('docs')/('RELEASE-'+os.environ['RELEASE_TAG']+'.zh-CN.md')
-          if not p.is_file():raise SystemExit('Missing version-specific public release notes')
-          text=p.read_text()
-          text+='\n\n## GitHub Actions package validation\n\nBoth editions were rebuilt from the matching public sources. ZIP integrity, source fingerprints, shared version/build, installation minima and the strict game-free file allowlist passed before publication. SHA256SUMS.txt lists these cloud-built assets; their bytes may differ from local builds. Installation minimums do not mean every device was tested.\n'
-          if os.environ.get('EXTRA_NOTES'):text+='\n'+os.environ['EXTRA_NOTES']+'\n'
-          text+='\nCompatibility source: https://github.com/'+os.environ['GITHUB_REPOSITORY']+'/tree/ios18-compat\n'
-          (Path(os.environ['RUNNER_TEMP'])/'dual-release-notes.md').write_text(text)
-          PYTHON
-          # A concurrent release must fail here; no clobber, forced refs or replacement.
-          gh release create "$RELEASE_TAG" \
-            "$RUNNER_TEMP/dual-shell-assets/ACNHMobile-iOS26-v$APP_VERSION-build$APP_BUILD-shell-unsigned.ipa" \
-            "$RUNNER_TEMP/dual-shell-assets/ACNHMobile-iOS18-compat-v$APP_VERSION-build$APP_BUILD-shell-unsigned.ipa" \
-            "$RUNNER_TEMP/dual-shell-assets/SHA256SUMS.txt" \
-            --target "$(git rev-parse HEAD)" \
-            --title "ACNH Mobile $RELEASE_TAG · iOS26 / iOS18 兼容版" \
-            --notes-file "$RUNNER_TEMP/dual-release-notes.md" --draft
-          gh release view "$RELEASE_TAG" --json assets > "$RUNNER_TEMP/remote-assets.json"
-          gh release download "$RELEASE_TAG" --dir "$RUNNER_TEMP/verify-release" --pattern '*.ipa' --pattern 'SHA256SUMS.txt'
-          python3 - <<'PYTHON'
-          from pathlib import Path
-          import os,json,hashlib
-          staged=Path(os.environ['RUNNER_TEMP'])/'dual-shell-assets'
-          downloaded=Path(os.environ['RUNNER_TEMP'])/'verify-release'
-          expected={p.name:p for p in staged.iterdir() if p.suffix=='.ipa' or p.name=='SHA256SUMS.txt'}
-          assets=json.loads((Path(os.environ['RUNNER_TEMP'])/'remote-assets.json').read_text())['assets']
-          if {x['name'] for x in assets}!=set(expected) or len(assets)!=3:raise SystemExit('Unexpected remote assets')
-          for x in assets:
-              local=expected[x['name']];remote=downloaded/x['name']
-              if x['size']!=local.stat().st_size or hashlib.sha256(remote.read_bytes()).digest()!=hashlib.sha256(local.read_bytes()).digest():
-                  raise SystemExit('Uploaded asset checksum mismatch')
-          print('Both cloud-built IPA files and SHA256SUMS downloaded and verified')
-          PYTHON
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            echo 'Release exists; refusing to overwrite.' >&2
+            exit 1
+          fi
+          gh release create "$RELEASE_TAG" "$RUNNER_TEMP"/shell-output/* \
+            --target "$(git rev-parse HEAD)" --draft \
+            --title "ACNH Mobile $RELEASE_TAG · 官方 Metal 4 空壳" \
+            --notes-file "docs/RELEASE-$RELEASE_TAG.zh-CN.md"
+          gh release download "$RELEASE_TAG" --dir "$RUNNER_TEMP/remote-shell"
+          python tools/verify_shell.py "$RUNNER_TEMP/remote-shell"
           gh release edit "$RELEASE_TAG" --draft=false --latest

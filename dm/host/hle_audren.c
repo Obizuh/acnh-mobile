@@ -1,15 +1,3 @@
-// nn::audio AudioRenderer（audren）——进程内渲染：用游戏 SDK 自带的整套渲染器，不重写混音。
-// 较新的 SDK 把渲染器服务端（nn::audio::server：InfoUpdater / CommandGenerator …）和 DSP 命令处理的 CPU 版（nn::audio::dsp::CommandListProcessor：
-// ADPCM / PCM 解码、重采样、混音、混响 / 延迟 / 双二阶 / 压限 …）都链进了应用，供「CPU 渲染 + 手动执行」模式用（AudioRendererParameter
-// +0x2c renderingDevice = 1 CPU，+0x30 executionMode = 1 手动）。这个模式下 OpenAudioRenderer 走进程内的 DFC 管理器（CreateAudioRendererManagerByDfc），
-// RequestUpdate 直接在进程内解析，渲染由调用 nn::audio::ExecuteAudioRendererRendering 的线程在 CPU 上做，做完触发游戏的渲染器事件。
-// 宿主做三件事：
-//   1. 接管 GetAudioRendererWorkBufferSize / OpenAudioRenderer：参数改成 CPU + 手动后调 SDK 原函数（工作区大小按改后的参数算）；
-//   2. 渲染线程（宿主起的客体线程）：输出端每放回一块 5 ms 缓冲就渲一帧，节奏跟着声卡时钟走；
-//   3. 接管 AudioRendererImpl::ExecuteAudioRendererRendering（经 PLT 调到）：照原函数生成命令、交 CommandListProcessor 处理，
-//      再从命令表里找 DeviceSink 命令（CPU 处理器对它是空操作），把它的输入混音缓冲（int32，16 位范围）夹成 int16 立体声交给 AudioOut 输出（hle_audio.c）。
-// 命令表格式（SDK 16）：头 +0x04 命令数、+0x08 混音缓冲地址、+0x10 缓冲数、+0x14 每帧采样数、+0x18 采样率，命令从 +0x20 起；
-//   每条命令 +0x00 魔数 0xcafebabe、+0x04 启用、+0x05 命令号（DeviceSink = 0x13）、+0x06 大小；DeviceSink +0x128 上采样缓冲、+0x130 输入数、+0x134 输入下标（s16）。
 // nn::audio AudioRenderer (audren) -- in-process rendering: use the complete renderer the game's SDK ships with, no mixer of our own.
 // Newer SDKs link the renderer server side (nn::audio::server: InfoUpdater / CommandGenerator ...) and the CPU version of the DSP command processing (nn::audio::dsp::CommandListProcessor:
 // ADPCM / PCM decoding, resampling, mixing, reverb / delay / biquad / limiter / compressor ...) into the application, for the "CPU rendering + manual execution" mode (AudioRendererParameter
@@ -23,44 +11,51 @@
 // Command list format (SDK 16): header +0x04 command count, +0x08 mix buffer address, +0x10 buffer count, +0x14 samples per frame, +0x18 sample rate, commands from +0x20;
 //   each command +0x00 magic 0xcafebabe, +0x04 enabled, +0x05 command ID (DeviceSink = 0x13), +0x06 size; DeviceSink +0x128 upsampler buffer, +0x130 input count, +0x134 input indices (s16).
 #include "hle.h"
+#include <math.h>
 #include <stdatomic.h>
 #include <time.h>
 #include <unistd.h>
 
 void *dm_guest_thread_spawn(void (*fn)(void *), void *arg, int prio, size_t stack_size);
+void dm_guest_thread_join(void *tt);
 void *dm_pcmout_open(int ch);
+void dm_pcmout_close(void *k);
 void dm_pcmout_start(void *k);
 int dm_pcmout_append(void *k, void *b);
 void *dm_pcmout_released(void *k);
+void dm_pcmout_wait(void *k, int ms);
 
-enum { P_DEVICE = 0x2c, P_MODE = 0x30, P_SIZE = 0x38, FRAME_MAX = 1024, NBUF = 4 };
-static void *gsym(const char *n) { void *p = guest_sym(n); if (!p) die("audren：缺 SDK 符号 %s", n); return p; }
+// P_SIZE: bytes of the game's AudioRendererParameter copied before the two fields are changed. SDK 16's struct is 0x38 bytes; SDK 8's (Link's Awakening) has one more word,
+// its revision at +0x38: copying only 0x38 left the revision uninitialized and the SDK rejected it (CheckValidRevision, Result 0x499). The SDK reads only its own size of the copy
+enum { P_DEVICE = 0x2c, P_MODE = 0x30, P_SIZE = 0x40, FRAME_MAX = 1024, NBUF = 4 };
+static void *gsym(const char *n) { void *p = guest_sym(n); if (!p) die("audren: missing SDK symbol %s", n); return p; }
 static void cpu_manual(uint8_t *dst, const uint8_t *src) { memcpy(dst, src, P_SIZE); *(int32_t *)(dst + P_DEVICE) = 1; *(int32_t *)(dst + P_MODE) = 1; }
 
-HLE_FORCE("_ZN2nn5audio30GetAudioRendererWorkBufferSizeERKNS0_22AudioRendererParameterE", "渲染器工作区大小：按 CPU 渲染 + 手动执行的参数算",
+HLE_FORCE("_ZN2nn5audio30GetAudioRendererWorkBufferSizeERKNS0_22AudioRendererParameterE", "renderer work buffer size: computed for CPU rendering + manual execution",
           size_t, h_ar_WorkSize, const uint8_t *param) {
     static size_t (*orig)(const uint8_t *); if (!orig) orig = gsym("_ZN2nn5audio30GetAudioRendererWorkBufferSizeERKNS0_22AudioRendererParameterE");
-    uint8_t p[P_SIZE]; cpu_manual(p, param); return orig(p);
+    uint8_t p[P_SIZE]; cpu_manual(p, param); size_t n = orig(p);
+    { static int once; if (!once++) LOG("audren: work buffer %#zx", n); }
+    return n;
 }
-HLE_FORCE("_ZN2nn5audio17OpenAudioRendererEPNS0_19AudioRendererHandleERKNS0_22AudioRendererParameterEPvm", "开渲染器：改成 CPU 渲染 + 手动执行后走 SDK 进程内渲染器",
+HLE_FORCE("_ZN2nn5audio17OpenAudioRendererEPNS0_19AudioRendererHandleERKNS0_22AudioRendererParameterEPvm", "open the renderer: switched to CPU rendering + manual execution, then the SDK in-process renderer",
           Result, h_ar_Open0, void **handle, const uint8_t *param, void *work, size_t sz) {
     static Result (*orig)(void **, const uint8_t *, void *, size_t);
     if (!orig) orig = gsym("_ZN2nn5audio17OpenAudioRendererEPNS0_19AudioRendererHandleERKNS0_22AudioRendererParameterEPvm");
     uint8_t p[P_SIZE]; cpu_manual(p, param); return orig(handle, p, work, sz);
 }
 
-// ---------- 渲染与输出 | rendering and output ----------
-static void *g_handle[2];                    // AudioRendererHandle（渲染器对象、客户端状态）| AudioRendererHandle (renderer object, client state)
+// ---------- rendering and output ----------
+static void *g_handle[2];                    // AudioRendererHandle (renderer object, client state)
 static _Atomic int g_open;
-static _Atomic(uintptr_t) g_acnh_system;
-static pthread_mutex_t g_render_mu = PTHREAD_MUTEX_INITIALIZER;
-static _Atomic uint64_t g_updates, g_renders, g_catchups;
-static int capture(const uint8_t *cl, int16_t *dst);
-static int16_t g_frame[FRAME_MAX * 2]; static int g_frame_n;   // 最近一帧（立体声 int16）| the latest frame (stereo int16)
+static void *g_render_tt;                    // the render thread (ThreadType from dm_guest_thread_spawn): Close joins it before the SDK tears the renderer down
+static int16_t g_frame[FRAME_MAX * 2]; static int g_frame_n;   // the latest frame (stereo int16)
 static _Atomic uint64_t g_frames, g_nonsilent;
-enum { CQ = 4 }; static int16_t g_cq[CQ][FRAME_MAX * 2]; static int g_cq_n[CQ]; static _Atomic uint32_t g_cq_head, g_cq_tail;   // 追帧的输出队列 | output queue of catch-up frames
+enum { CQ = 4 }; static int16_t g_cq[CQ][FRAME_MAX * 2]; static int g_cq_n[CQ]; static _Atomic uint32_t g_cq_head, g_cq_tail;   // output queue of catch-up frames
+static pthread_mutex_t g_cq_mu = PTHREAD_MUTEX_INITIALIZER; static pthread_cond_t g_cq_cv = PTHREAD_COND_INITIALIZER;   // the render thread signals each frame it takes off the queue (catch-up pacing)
+static void cq_popped(void) { pthread_mutex_lock(&g_cq_mu); pthread_cond_broadcast(&g_cq_cv); pthread_mutex_unlock(&g_cq_mu); }
 
-typedef struct { void *ptr; uint64_t cap, size; } gbuf;       // 与 hle_audio.c 的 AudioOutBuffer 前部一致 | same as the front of hle_audio.c's AudioOutBuffer
+typedef struct { void *ptr; uint64_t cap, size; } gbuf;       // same as the front of hle_audio.c's AudioOutBuffer
 static void render_main(void *arg) {
     (void)arg;
     void (*exec)(void *, void *) = gsym("_ZN2nn5audio29ExecuteAudioRendererRenderingENS0_19AudioRendererHandleE");
@@ -68,216 +63,270 @@ static void render_main(void *arg) {
     static int16_t data[NBUF][FRAME_MAX * 2]; static gbuf bufs[NBUF]; gbuf *free_list[NBUF]; int nfree = NBUF;
     for (int i = 0; i < NBUF; i++) { bufs[i] = (gbuf){data[i], sizeof data[i], 0}; free_list[i] = &bufs[i]; }
     dm_pcmout_start(out);
-    LOG("audren：渲染线程开跑（%d 块缓冲在途，节奏跟输出端）", NBUF);
+    LOG("audren: render thread started (%d buffers in flight, paced by the output)", NBUF);
     while (atomic_load(&g_open)) {
-        while (!nfree) {   // 等输出端放回一块（静音接收端 / 声卡每 5 ms 一块）| wait for the output to hand a block back (silent sink / sound card, one every 5 ms)
+        while (!nfree) {   // wait for the output to hand a block back (silent sink / sound card, one every 5 ms); it signals each release, so the thread sleeps until then (it used to poll every 1 ms)
             gbuf *b = dm_pcmout_released(out);
             if (b) { free_list[nfree++] = b; break; }
-            usleep(1000);
-            if (!atomic_load(&g_open)) return;
+            dm_pcmout_wait(out, 10);
+            if (!atomic_load(&g_open)) break;
         }
+        if (!nfree) break;
         const int16_t *src; int got;
         uint32_t h = atomic_load(&g_cq_head);
-        if (h != atomic_load(&g_cq_tail)) { src = g_cq[h % CQ]; got = g_cq_n[h % CQ]; atomic_store(&g_cq_head, h + 1); }   // 先放追帧的输出 | play queued catch-up output first
-        else {
-            g_frame_n=0;
-            if(getenv("ACNH_SINGLE_AUDIO_CLOCK") && !strcmp(dm_main_build(),"ff1d1c05670db6021c85b624a710b963")) {
-                // SDK20 由虚表直接执行，绕过导出函数接管；公开执行完成后必须显式取得 PCM。
-                // SDK20 executes through a vtable, bypassing the export hook; capture PCM explicitly after public execution.
-                pthread_mutex_lock(&g_render_mu);
-                exec(g_handle[0],g_handle[1]);
-                atomic_fetch_add(&g_renders,1);
-                uint8_t *system=(uint8_t *)atomic_load(&g_acnh_system);
-                const uint8_t *cl=system ? *(const uint8_t **)(system+0xf8) : NULL;
-                if(cl)g_frame_n=capture(cl,g_frame);
-                pthread_mutex_unlock(&g_render_mu);
-            } else exec(g_handle[0],g_handle[1]);
-            src=g_frame;got=g_frame_n;
-        }   // SDK：生成命令 → CPU 处理（宿主接管处取出输出）→ 触发游戏的渲染器事件 | SDK: generate commands → CPU processing (output taken in the host takeover) → signal the game's renderer event
+        if (h != atomic_load(&g_cq_tail)) { src = g_cq[h % CQ]; got = g_cq_n[h % CQ]; atomic_store(&g_cq_head, h + 1); cq_popped(); }   // play queued catch-up output first
+        else { g_frame_n = 0; exec(g_handle[0], g_handle[1]); src = g_frame; got = g_frame_n; }   // SDK: generate commands → CPU processing (output taken in the host takeover) → signal the game's renderer event
         int n = got ? got : 240;
         gbuf *b = free_list[--nfree];
         if (got) memcpy(b->ptr, src, (size_t)n * 4); else memset(b->ptr, 0, (size_t)n * 4);
-        // 诊断记录最多一分钟应用输出的 PCM，不使用麦克风。
-        // Diagnostic capture of up to one minute of app PCM output; no microphone.
-        static FILE *wav; static int wav_init; static uint32_t wav_bytes;
-        if(!wav_init){wav_init=1;const char *path=getenv("ACNH_AUDIO_WAV");if(path){wav=fopen(path,"wb");if(wav){uint8_t h[44]={0};memcpy(h,"RIFF",4);memcpy(h+8,"WAVEfmt ",8);uint32_t v32=16;memcpy(h+16,&v32,4);uint16_t v16=1;memcpy(h+20,&v16,2);v16=2;memcpy(h+22,&v16,2);v32=48000;memcpy(h+24,&v32,4);v32=192000;memcpy(h+28,&v32,4);v16=4;memcpy(h+32,&v16,2);v16=16;memcpy(h+34,&v16,2);memcpy(h+36,"data",4);fwrite(h,1,44,wav);}}}
-        if(wav){size_t count=(size_t)n*4;fwrite(b->ptr,1,count,wav);wav_bytes+=(uint32_t)count;uint32_t riff=wav_bytes+36;fseek(wav,4,SEEK_SET);fwrite(&riff,4,1,wav);fseek(wav,40,SEEK_SET);fwrite(&wav_bytes,4,1,wav);fseek(wav,0,SEEK_END);if(wav_bytes%19200==0)fflush(wav);if(wav_bytes>=60*192000){fclose(wav);wav=NULL;}}
         b->size = (uint64_t)n * 4;
         if (!dm_pcmout_append(out, b)) free_list[nfree++] = b;
     }
+    dm_pcmout_close(out);   // the output would otherwise keep its sound card callback or silent sink running and hold one of the AudioOut slots after the renderer closes
+    cq_popped();   // an update waiting for queue space (catch-up pacing) sees g_open cleared
 }
 
-HLE_FORCE("_ZN2nn5audio17OpenAudioRendererEPNS0_19AudioRendererHandleEPNS_2os11SystemEventERKNS0_22AudioRendererParameterEPvm", "开渲染器（带事件）：CPU 渲染 + 手动执行，宿主起渲染线程",
+HLE_FORCE("_ZN2nn5audio17OpenAudioRendererEPNS0_19AudioRendererHandleEPNS_2os11SystemEventERKNS0_22AudioRendererParameterEPvm", "open the renderer (with event): CPU rendering + manual execution, the host starts a render thread",
           Result, h_ar_Open, void **handle, void *ev, const uint8_t *param, void *work, size_t sz) {
     static Result (*orig)(void **, void *, const uint8_t *, void *, size_t);
     if (!orig) orig = gsym("_ZN2nn5audio17OpenAudioRendererEPNS0_19AudioRendererHandleEPNS_2os11SystemEventERKNS0_22AudioRendererParameterEPvm");
     uint8_t p[P_SIZE]; cpu_manual(p, param);
-    LOG("audren：OpenAudioRenderer 采样率 %d 每帧 %d 混音缓冲 %d 子混音 %d 声部 %d 输出 %d 效果 %d 分路 %d（原设备 %d 模式 %d → CPU / 手动）",
+    LOG("audren: OpenAudioRenderer rate %d samples per frame %d mix buffers %d submixes %d voices %d sinks %d effects %d splitters %d (original device %d mode %d → CPU / manual) work buffer %p+%#zx",
         *(int32_t *)param, *(int32_t *)(param + 4), *(int32_t *)(param + 8), *(int32_t *)(param + 0xc), *(int32_t *)(param + 0x10), *(int32_t *)(param + 0x14),
-        *(int32_t *)(param + 0x18), *(int32_t *)(param + 0x24), *(int32_t *)(param + P_DEVICE), *(int32_t *)(param + P_MODE));
+        *(int32_t *)(param + 0x18), *(int32_t *)(param + 0x24), *(int32_t *)(param + P_DEVICE), *(int32_t *)(param + P_MODE), work, sz);
     Result r = orig(handle, ev, p, work, sz);
-    if (r) { LOG("【红】audren：SDK OpenAudioRenderer 失败 %#x", r); return r; }
-    if (atomic_load(&g_open)) { LOG("【红】audren：第二个渲染器（宿主只驱动一个）"); return r; }
+    if (r) { LOG("[RED] audren: SDK OpenAudioRenderer failed %#x", r); return r; }
+    if (atomic_load(&g_open)) { LOG("[RED] audren: a second renderer (the host drives only one)"); return r; }
     g_handle[0] = handle[0]; g_handle[1] = handle[1]; atomic_store(&g_open, 1);
-    dm_guest_thread_spawn(render_main, NULL, 9, 0x10000);
+    g_render_tt = dm_guest_thread_spawn(render_main, NULL, 9, 0x10000);
     return r;
 }
-HLE_FORCE("_ZN2nn5audio18CloseAudioRendererENS0_19AudioRendererHandleE", "关渲染器：先停宿主渲染线程再交 SDK", void, h_ar_Close, void *obj, void *state) {
+HLE_FORCE("_ZN2nn5audio18CloseAudioRendererENS0_19AudioRendererHandleE", "close the renderer: stop the host render thread first, then hand over to the SDK", void, h_ar_Close, void *obj, void *state) {
     static void (*orig)(void *, void *); if (!orig) orig = gsym("_ZN2nn5audio18CloseAudioRendererENS0_19AudioRendererHandleE");
-    if (obj == g_handle[0]) { atomic_store(&g_open, 0); usleep(20000); }   // 渲染线程每轮查一次，最多等一帧多 | the render thread checks every round; wait a little over one frame
+    // Join the render thread first (it checks g_open every round and at most every 10 ms while waiting for the output): it may be inside exec(), which uses the renderer the SDK is about to free.
+    // A fixed 20 ms sleep used to stand in for this, and a renderer reopened inside that window ran a second thread over the first one's static buffers
+    if (obj == g_handle[0] && g_render_tt) { atomic_store(&g_open, 0); dm_guest_thread_join(g_render_tt); g_render_tt = NULL; }
     orig(obj, state);
 }
 
-// 取 DeviceSink 的输入混音缓冲 → int16 立体声 | DeviceSink input mix buffers → int16 stereo
-static int capture(const uint8_t *cl, int16_t *dst) {
+// DeviceSink input mix buffers → int16 stereo. The command ID is 0x13 in SDK 16; SDK 20 inserted a command before it, making it 0x14 (written at sdk+0x233f44); SDK 8 (Link's Awakening)
+//   has four fewer commands before it, making it 0x10. The layout is the same in all three: 0x148 bytes, +0x20 device name ("MainAudioOut"), +0x128 upsample buffer, +0x130 input count,
+//   +0x134 input indices. render_once sets the ID by layout; when the first full command list has no command with that ID, its one 0x148-byte command with 1 to 6 inputs is the sink
+//   (without this, Link's Awakening rendered every frame and played silence: the music and sound effects never reached the output, only the movies' own AudioOut did)
+// SDK 6 (Fire Emblem: Three Houses, CommandListProcessor::Process at sdk+0xaaa00) lays out the command header differently: +0x04 size (s16), +0x06 command ID (s16), +0x10 enabled (u8),
+//   where SDK 8–20 have +0x04 enabled (u8), +0x05 ID (u8), +0x06 size (s16); DeviceSink is ID 16 there (its case in Process is a no-op). Walked with the newer header, the first command's ID
+//   was taken as its size, the second "command" had no magic and the game was silent. The first full command list decides the layout: the one whose walk finds the magic on every command
+// SDK 21 (Rhythm Heaven Groove, CommandListProcessor::Process at sdk+0x24fd50) has no magic: +0x00 enabled (bit 0), +0x01 command ID (u8), +0x02 size (s16), +0x04 estimated time, +0x08 node ID,
+//   and every command body sits 8 bytes earlier. DeviceSink is still ID 0x14 but 0x140 bytes (written at sdk+0x23a7b0): +0x18 device name, +0x120 upsample buffer, +0x128 input count, +0x12c input
+//   indices. Walked as SDK 20, the first command's enabled / ID / size bytes read as a magic of 0x181901 and the game was silent. With no magic, that walk must stay inside the generated list
+static int g_sink_id = 0x13, g_hdr6, g_hdr21;
+static int cmd_size(const uint8_t *q) { return g_hdr21 ? *(const int16_t *)(q + 2) : g_hdr6 ? *(const int16_t *)(q + 4) : *(const int16_t *)(q + 6); }
+static int cmd_id(const uint8_t *q) { return g_hdr21 ? q[1] : g_hdr6 ? *(const int16_t *)(q + 6) : q[5]; }
+static int cmd_on(const uint8_t *q) { return g_hdr21 ? q[0] & 1 : g_hdr6 ? q[0x10] : q[4]; }
+static int cmd_ok(const uint8_t *q, const uint8_t *end) { int n = cmd_size(q); return g_hdr21 ? n >= 0x10 && q + n <= end : *(const uint32_t *)q == 0xcafebabeu && n > 0; }
+static int sink_body(void) { return g_hdr21 ? -8 : 0; }   // where DeviceSink's fields sit relative to SDK 8–20
+static int cmd_walks(const uint8_t *cl, uint32_t ncmd, const uint8_t *end) {
+    const uint8_t *q = cl + 0x20;
+    for (uint32_t i = 0; i < ncmd; i++) { if (!cmd_ok(q, end)) return 0; q += cmd_size(q); }
+    return 1;
+}
+// A renderer at 32 kHz (DRAGON QUEST VII Reimagined: 160 samples per 5 ms frame) has its DeviceSink upsampled to the output's 48 kHz by the SDK's upsampler, which AudioRenderSystem::
+//   SetUpRenderResourceSet allocates only for the DSP (SDK 19: sdk+0x21eb6c, sample rate 0x7d00 and rendering device +0x48 == 0). With the host's CPU rendering there is no
+//   UpsamplerManager, and the sink's command generation (GenerateSinkCommands, sdk+0x225a80) called Allocate on null and crashed in its mutex. The takeover below answers "no upsampler"
+//   for a null manager (the generator then skips the upsample command, sdk+0x225b40), and the host upsamples the stereo downmix 3:2 itself: a windowed sinc (Blackman, 16 taps, cutoff 0.9 of
+//   the input's Nyquist) in three phases, evaluated 8 input samples late so every tap is known, with the last 15 samples kept across frames
+HLE_FORCE("_ZN2nn5audio6server16UpsamplerManager8AllocateEv", "upsampler for a DeviceSink below 48 kHz: none with CPU rendering (no manager), the host resamples its output",
+          void *, h_up_Allocate, void *mgr) {
+    static void *(*orig)(void *); if (!orig) orig = gsym("_ZN2nn5audio6server16UpsamplerManager8AllocateEv");
+    return mgr ? orig(mgr) : NULL;
+}
+enum { RS_T = 16 };
+static uint32_t up_3_2(const int32_t *in, uint32_t n, int32_t *out) {
+    static float h[3][RS_T]; static int32_t buf[2 * (RS_T - 1 + FRAME_MAX)]; static uint32_t pos;   // pos: the next output's position in thirds of an input sample, from the frame start
+    if (!h[0][RS_T / 2 - 1]) {
+        for (int p = 0; p < 3; p++) {
+            double sum = 0, w[RS_T];
+            for (int k = 0; k < RS_T; k++) {
+                double x = p / 3.0 + RS_T / 2 - 1 - k, fc = 0.9, s = x == 0 ? fc : sin(M_PI * fc * x) / (M_PI * x);
+                double t = (x + RS_T / 2) / RS_T, win = 0.42 - 0.5 * cos(2 * M_PI * t) + 0.08 * cos(4 * M_PI * t);
+                w[k] = s * win; sum += w[k];
+            }
+            for (int k = 0; k < RS_T; k++) h[p][k] = (float)(w[k] / sum);
+        }
+    }
+    memcpy(buf + 2 * (RS_T - 1), in, (size_t)n * 8);   // the frame after the last RS_T - 1 samples of the one before (copied first: out may be in)
+    uint32_t m = 0;
+    for (; pos < 3 * n; pos += 2, m++) {
+        const int32_t *x = buf + 2 * (pos / 3); const float *c = h[pos % 3]; float l = 0, r = 0;
+        for (int k = 0; k < RS_T; k++) { l += c[k] * (float)x[2 * k]; r += c[k] * (float)x[2 * k + 1]; }
+        out[2 * m] = (int32_t)lrintf(l); out[2 * m + 1] = (int32_t)lrintf(r);
+    }
+    pos -= 3 * n;
+    memmove(buf, buf + 2 * n, (RS_T - 1) * 8);
+    return m;
+}
+static int capture(const uint8_t *cl, size_t len, int16_t *dst) {
     uint32_t ncmd = *(const uint32_t *)(cl + 4), samples = *(const uint32_t *)(cl + 0x14), rate = *(const uint32_t *)(cl + 0x18);
-    const int32_t *mix = *(const int32_t *const *)(cl + 8);
-    static int logged;
-    if (!logged && ncmd > 4) {   // 第一帧完整命令表：命令号分布 | first full command list: command ID histogram
-        int hist[64] = {0}; const uint8_t *q = cl + 0x20; char line[512]; size_t o = 0;
-        for (uint32_t i = 0; i < ncmd && *(const uint32_t *)q == 0xcafebabeu && *(const int16_t *)(q + 6) > 0; i++) { hist[q[5] & 63]++; q += *(const int16_t *)(q + 6); }
+    const int32_t *mix = *(const int32_t *const *)(cl + 8); const uint8_t *cend = cl + len;
+    static int logged, hist_logged, layout_done;
+    if (!layout_done && ncmd) {   // first command list: the header layout (SDK 21's first lists have 4 commands or fewer, which the old layout would report as malformed)
+        layout_done = 1;
+        if (!cmd_walks(cl, ncmd, cend)) { g_hdr6 = 1; if (cmd_walks(cl, ncmd, cend)) { g_sink_id = 0x10; LOG("audren: command headers in the SDK 6 layout (+4 size, +6 command ID, +0x10 enabled), DeviceSink is ID 0x10"); } else g_hdr6 = 0; }
+        if (!g_hdr6 && !cmd_walks(cl, ncmd, cend)) { g_hdr21 = 1; if (cmd_walks(cl, ncmd, cend)) LOG("audren: command headers in the SDK 21 layout (no magic: +0 enabled, +1 command ID, +2 size), DeviceSink 0x140 bytes"); else g_hdr21 = 0; }
+    }
+    if (!hist_logged && ncmd > 4) {   // first full command list: command ID histogram and the sink ID check
+        hist_logged = 1;
+        int hist[64] = {0}, cand = -1, ncand = 0, sink_sz = 0x148 + sink_body(); const uint8_t *q = cl + 0x20; char line[512]; size_t o = 0;
+        for (uint32_t i = 0; i < ncmd && cmd_ok(q, cend); i++) {
+            int sz = cmd_size(q); hist[cmd_id(q) & 63]++;
+            if (sz == sink_sz && *(const uint32_t *)(q + 0x130 + sink_body()) - 1 < 6) { cand = cmd_id(q); ncand++; }
+            q += sz;
+        }
         for (int k = 0; k < 64; k++) if (hist[k]) o += snprintf(line + o, sizeof line - o, " %d×%d", k, hist[k]);
-        LOG("audren：首帧命令 %u 条，按命令号：%s", ncmd, line);
+        LOG("audren: first-frame commands %u, by command ID: %s", ncmd, line);
+        if (!hist[g_sink_id & 63] && ncand == 1) { LOG("audren: no command with ID %#x in the command list; the only 0x148-byte command is ID %#x, taking it as DeviceSink", g_sink_id, cand); g_sink_id = cand; }
+        else if (!hist[g_sink_id & 63]) LOG("[RED] audren: no DeviceSink (ID %#x) in the command list, %d commands of %#x bytes: the game will have no sound", g_sink_id, ncand, sink_sz);
     }
     const uint8_t *c = cl + 0x20;
     for (uint32_t i = 0; i < ncmd; i++) {
-        uint32_t magic = *(const uint32_t *)c; int16_t size = *(const int16_t *)(c + 6);
-        if (magic != 0xcafebabeu || size <= 0) { if (!logged++) LOG("【红】audren：命令表第 %u 条格式不对（魔数 %#x 大小 %d）", i, magic, size); return 0; }
-        // 动森 SDK20 的 GenerateDeviceSinkCommand 写命令号 0x14、大小 0x148；字段 +0x128/+0x130/+0x134 与 SDK16 相同（该构建反汇编已核对）。
-        // ACNH SDK20's GenerateDeviceSinkCommand writes ID 0x14 and size 0x148; fields +0x128/+0x130/+0x134 match SDK16, verified in this build's disassembly.
-        unsigned sink_id = !strcmp(dm_main_build(), "ff1d1c05670db6021c85b624a710b963") ? 0x14 : 0x13;
-        if (c[5] == sink_id && c[4]) {
-            if (size < 0x140) return 0;
-            uint32_t nin = *(const uint32_t *)(c + 0x130); const int16_t *in = (const int16_t *)(c + 0x134);
-            const int32_t *up = *(const int32_t *const *)(c + 0x128);
-            if (!logged++) LOG("audren：DeviceSink 输入 %u 个（%d %d …）采样率 %u 每帧 %u 混音缓冲 %p 上采样缓冲 %p", nin, nin ? in[0] : -1, nin > 1 ? in[1] : -1, rate, samples, (void *)mix, (void *)up);
-            if (!nin || nin > 6 || samples > FRAME_MAX) return 0;
-            // 输入缓冲：48 kHz 读混音缓冲；32 kHz 渲染时 DeviceSink 读上采样后的缓冲（按输入顺序连排）
-            // Input buffers: at 48 kHz the mix buffers; with 32 kHz rendering DeviceSink reads the upsampled buffer (inputs laid out in order)
+        int size = cmd_size(c);
+        if (!cmd_ok(c, cend)) { if (!logged++) LOG("[RED] audren: command %u in the command list is malformed (first word %#x size %d)", i, *(const uint32_t *)c, size); return 0; }
+        if (cmd_id(c) == g_sink_id && cmd_on(c)) {
+            const uint8_t *b = c + sink_body();
+            uint32_t nin = *(const uint32_t *)(b + 0x130); const int16_t *in = (const int16_t *)(b + 0x134);
+            const int32_t *up = *(const int32_t *const *)(b + 0x128);
+            if (!logged++) LOG("audren: DeviceSink inputs %u (%d %d …) rate %u samples per frame %u mix buffer %p upsample buffer %p%s", nin, nin ? in[0] : -1, nin > 1 ? in[1] : -1, rate, samples, (void *)mix, (void *)up,
+                               rate == 32000 ? " (32 kHz: resampled to 48 kHz on the host)" : "");
+            if (!nin || samples > (rate == 48000 ? FRAME_MAX : FRAME_MAX * 2 / 3 - 1)) return 0;
+            if (rate != 48000 && rate != 32000) { static int once; if (!once++) LOG("[RED] audren: renderer sample rate %u (the SDK takes 32000 or 48000): no sound", rate); return 0; }
+            // Input buffers: the mix buffers the DeviceSink inputs name, at the renderer's rate (with CPU rendering the SDK makes no upsampler, below)
             const int32_t *ch[6]; uint32_t k = nin > 6 ? 6 : nin;
-            for (uint32_t j = 0; j < k; j++) {
-                if (in[j] < 0 || (uint32_t)in[j] >= *(const uint32_t *)(cl + 0x10)) return 0;
-                ch[j] = up && rate != 48000 ? up + (size_t)j * samples : mix + (size_t)in[j] * samples;
-            }
-            // 声道顺序 前左 前右 中 低音 后左 后右；6 → 2 按系统缺省下混系数（前 1.0、中 0.707、低音 0.251、后 0.707，Q15）
+            for (uint32_t j = 0; j < k; j++) ch[j] = mix + (size_t)in[j] * samples;
             // Channel order front-left front-right center LFE back-left back-right; 6 → 2 with the system default downmix coefficients (front 1.0, center 0.707, LFE 0.251, back 0.707, Q15)
             enum { CF = 32768, CC = 23167, CL = 8224, CB = 23167 };
-            uint64_t loud = 0;
+            static int32_t st[FRAME_MAX * 2];   // the stereo downmix before clamping (capture runs under g_render_mu)
             for (uint32_t s = 0; s < samples; s++) {
                 int32_t l, r;
                 if (k >= 6) { int64_t c = (int64_t)ch[2][s] * CC + (int64_t)ch[3][s] * CL;
                               l = (int32_t)(((int64_t)ch[0][s] * CF + c + (int64_t)ch[4][s] * CB) >> 15); r = (int32_t)(((int64_t)ch[1][s] * CF + c + (int64_t)ch[5][s] * CB) >> 15); }
                 else { l = ch[0][s]; r = k > 1 ? ch[1][s] : l; }
-                // 六声道下混留出余量，防止多个声道叠加后硬削波；仅用于动森测试开关。
-                // Reserve headroom when downmixing six channels to prevent hard clipping; ACNH test switch only.
-                static uint64_t acnh_samples, acnh_clip_before, acnh_clip_after;
-                if(l>32767 || l< -32768 || r>32767 || r< -32768)acnh_clip_before++;
-                static int headroom=-1;
-                if(headroom<0)headroom=getenv("ACNH_AUDIO_HEADROOM") && !strcmp(dm_main_build(),"ff1d1c05670db6021c85b624a710b963");
-                if(headroom && k>=6) { l=(int32_t)((int64_t)l*32768/87326); r=(int32_t)((int64_t)r*32768/87326); }
-                if(l>32767 || l< -32768 || r>32767 || r< -32768)acnh_clip_after++;
-                if(headroom && ++acnh_samples==96000) { LOG("ACNH audio: 2s downmix clipping before=%llu after=%llu",(unsigned long long)acnh_clip_before,(unsigned long long)acnh_clip_after); acnh_samples=acnh_clip_before=acnh_clip_after=0; }
-                l = l > 32767 ? 32767 : l < -32768 ? -32768 : l; r = r > 32767 ? 32767 : r < -32768 ? -32768 : r;
-                dst[2 * s] = (int16_t)l; dst[2 * s + 1] = (int16_t)r; loud |= (uint64_t)(l | r);
+                st[2 * s] = l; st[2 * s + 1] = r;
+            }
+            uint32_t nout = rate == 48000 ? samples : up_3_2(st, samples, st);
+            uint64_t loud = 0;
+            for (uint32_t s = 0; s < 2 * nout; s++) {
+                int32_t v = st[s]; v = v > 32767 ? 32767 : v < -32768 ? -32768 : v;
+                dst[s] = (int16_t)v; loud |= (uint64_t)v;
             }
             atomic_fetch_add(&g_frames, 1); if (loud) atomic_fetch_add(&g_nonsilent, 1);
-            uint64_t f = atomic_load(&g_frames); if (f == 200 || f % 12000 == 0) LOG("audren：已渲 %llu 帧，其中有声 %llu 帧", (unsigned long long)f, (unsigned long long)atomic_load(&g_nonsilent));
-            return (int)samples;
+            uint64_t f = atomic_load(&g_frames); if (f == 200 || f % 12000 == 0) LOG("audren: rendered %llu frames, %llu of them not silent", (unsigned long long)f, (unsigned long long)atomic_load(&g_nonsilent));
+            return (int)nout;
         }
         c += size;
     }
     return 0;
 }
-// 渲染一帧（生成命令 + CPU 处理）；dst = 输出（立体声 int16，*nout 采样数）。两处调用（渲染线程、追帧）由宿主锁串行：共用同一块命令缓冲
 // Render one frame (generate commands + CPU processing); dst = output (stereo int16, *nout samples). The two callers (render thread, catch-up) are serialized by a host lock: they share one command buffer
+static pthread_mutex_t g_render_mu = PTHREAD_MUTEX_INITIALIZER;
+static _Atomic uint64_t g_updates, g_renders, g_catchups;
+// SDK 20's AudioRenderSystem (The Legend of Zelda: Breath of the Wild 1.9.0) has another layout: the member functions for mode / device / command buffer are inlined (sdk+0x22a70c ExecuteAudioRendererRendering:
+//   +0x48 rendering device and +0x4c execution mode, both must be 1; +0xf8 / +0x100 command buffer start / length), GenerateCommand takes a Span<std::byte> and returns a Span (x0 start, x1 length: the generated command list),
+//   and the mutex UpdateImpl holds is at +0x2d0 (+0x1f0 in SDK 16). The layout is recognized by the presence of the Span version of GenerateCommand
+typedef struct { uint8_t *p; size_t n; } span_t;
 static Result render_once(uint8_t *sys, int16_t *dst, int *nout) {
-    // 动森 SDK20 不再导出 SDK16 的 GetExecutionMode 等 getter，GenerateCommand 也改成返回 Span。
-    // 该构建反汇编确认原生 ExecuteAudioRendererRendering 自行驱动 CPU DSP，命令缓冲在 AudioRenderSystem +0xf8；优先复用整条原生路径。
-    // ACNH SDK20 no longer exports SDK16's GetExecutionMode getters and GenerateCommand now returns a Span.
-    // Disassembly of this build confirms native ExecuteAudioRendererRendering drives the CPU DSP and the command buffer is at AudioRenderSystem +0xf8; reuse that complete native path.
-    if (!strcmp(dm_main_build(), "ff1d1c05670db6021c85b624a710b963")) {
-        static Result (*native_exec)(void *);
-        if (!native_exec) native_exec = gsym("_ZN2nn5audio6server17AudioRenderSystem29ExecuteAudioRendererRenderingEv");
-        pthread_mutex_lock(&g_render_mu);
-        Result result = native_exec(sys);
-        if (!result) {
-            atomic_fetch_add(&g_renders, 1);
-            if (dst && nout) *nout = capture(*(const uint8_t **)(sys + 0xf8), dst);
-        }
-        pthread_mutex_unlock(&g_render_mu);
-        return result;
-    }
     static int (*mode)(void *), (*device)(void *); static uint8_t *(*cbuf)(void *); static size_t (*cbsz)(void *), (*gen)(void *, void *, size_t);
+    static span_t (*gen20)(void *, void *, size_t); static size_t mu_off;
     static void (*tmax)(void *, uint32_t), (*setup)(void *, const void *, size_t), (*process)(void *), (*lock)(void *), (*unlock)(void *);
     if (!process) {
         lock = gsym("_ZN2nn2os12SdkMutexType4LockEv"); unlock = gsym("_ZN2nn2os12SdkMutexType6UnlockEv");
-        mode = gsym("_ZNK2nn5audio6server17AudioRenderSystem16GetExecutionModeEv"); device = gsym("_ZNK2nn5audio6server17AudioRenderSystem18GetRenderingDeviceEv");
-        cbuf = gsym("_ZNK2nn5audio6server17AudioRenderSystem26GetCommandBufferWorkBufferEv"); cbsz = gsym("_ZNK2nn5audio6server17AudioRenderSystem30GetCommandBufferWorkBufferSizeEv");
-        gen = gsym("_ZN2nn5audio6server17AudioRenderSystem15GenerateCommandEPvm");
+        gen20 = guest_sym("_ZN2nn5audio6server17AudioRenderSystem15GenerateCommandENS_4SpanISt4byteEE");
+        if (!gen20) {
+            mode = gsym("_ZNK2nn5audio6server17AudioRenderSystem16GetExecutionModeEv"); device = gsym("_ZNK2nn5audio6server17AudioRenderSystem18GetRenderingDeviceEv");
+            cbuf = gsym("_ZNK2nn5audio6server17AudioRenderSystem26GetCommandBufferWorkBufferEv"); cbsz = gsym("_ZNK2nn5audio6server17AudioRenderSystem30GetCommandBufferWorkBufferSizeEv");
+            gen = gsym("_ZN2nn5audio6server17AudioRenderSystem15GenerateCommandEPvm");
+        }
+        mu_off = gen20 ? 0x2d0 : 0x1f0; g_sink_id = gen20 ? 0x14 : 0x13;
+        LOG("audren: AudioRenderSystem in the SDK %s layout (update lock +%#zx)", gen20 ? "20" : "16", mu_off);
         tmax = gsym("_ZN2nn5audio3dsp20CommandListProcessor17SetProcessTimeMaxEj"); setup = gsym("_ZN2nn5audio3dsp20CommandListProcessor5SetupEPKvm");
         process = gsym("_ZN2nn5audio3dsp20CommandListProcessor7ProcessEv");
     }
-    if (mode(sys) != 1 || device(sys) != 1) return 0x40299;   // 同原函数：非 CPU 手动模式不能手动渲染 | same as the original: manual rendering needs CPU + manual mode
+    int md = gen20 ? *(int32_t *)(sys + 0x4c) : mode(sys), dv = gen20 ? *(int32_t *)(sys + 0x48) : device(sys);
+    if (md != 1 || dv != 1) return 0x40299;   // same as the original: manual rendering needs CPU + manual mode
     pthread_mutex_lock(&g_render_mu);
     uint64_t t0 = now_ns();
-    // 生成命令要与游戏线程的 RequestUpdate（AudioRenderSystem::Update，持 +0x1f0 的互斥锁）互斥：原版的系统线程（SendCommandToDsp）也是持同一把锁生成。处理（CPU 版 DSP）照原版在锁外。
-    // Command generation must exclude the game thread's RequestUpdate (AudioRenderSystem::Update, which holds the mutex at +0x1f0): the original system thread (SendCommandToDsp) generates under the same lock. Processing (the CPU DSP) stays outside the lock, as in the original.
-    uint8_t *cl = cbuf(sys);
-    lock(sys + 0x1f0); size_t n = gen(sys, cl, cbsz(sys)); unlock(sys + 0x1f0);
+    // Command generation must exclude the game thread's RequestUpdate (AudioRenderSystem::Update, which holds the mutex at mu_off): the original system thread (SendCommandToDsp) generates under the same lock. Processing (the CPU DSP) stays outside the lock, as in the original.
+    uint8_t *cl; size_t n;
+    lock(sys + mu_off);
+    if (gen20) { span_t sp = gen20(sys, *(uint8_t **)(sys + 0xf8), *(size_t *)(sys + 0x100)); cl = sp.p; n = sp.n; }
+    else { cl = cbuf(sys); n = gen(sys, cl, cbsz(sys)); }
+    unlock(sys + mu_off);
     atomic_fetch_add(&g_renders, 1);
-    uint64_t proc[16] __attribute__((aligned(16))) = {0};   // CommandListProcessor（0x58 字节）| CommandListProcessor (0x58 bytes)
+    uint64_t proc[16] __attribute__((aligned(16))) = {0};   // CommandListProcessor (0x58 bytes; 0x60 in SDK 21, whose Process reads +0x58)
     tmax(proc, 0xffffffffu); setup(proc, cl, n); process(proc);
-    if (dst) *nout = capture(cl, dst);
-    // 每帧渲染耗时（5 ms 一帧的预算）：每 2000 帧报均值 / 最大 | render time per frame (budget: 5 ms per frame): mean / max every 2000 frames
+    if (dst) *nout = capture(cl, n, dst);
+    // render time per frame (budget: 5 ms per frame): mean / max every 2000 frames
     static uint64_t sum, mx, cnt; uint64_t d = now_ns() - t0; sum += d; if (d > mx) mx = d;
-    if (++cnt == 2000) { LOG("audren：渲染耗时 均 %.2f ms / 最大 %.2f ms（每帧 5 ms 预算，最近 2000 帧）；追帧累计 %llu 次", sum / 2000 / 1e6, mx / 1e6, (unsigned long long)atomic_load(&g_catchups)); sum = mx = cnt = 0; }
+    if (++cnt == 2000) { LOG("audren: render time mean %.2f ms / max %.2f ms (5 ms budget per frame, last 2000 frames); catch-up renders so far %llu", sum / 2000 / 1e6, mx / 1e6, (unsigned long long)atomic_load(&g_catchups)); sum = mx = cnt = 0; }
     pthread_mutex_unlock(&g_render_mu);
     return RES_OK;
 }
-HLE_FORCE("_ZN2nn5audio6server24AudioRendererManagerImpl17AudioRendererImpl29ExecuteAudioRendererRenderingEv", "手动渲染一帧：SDK 生成命令 + CPU 处理，宿主取 DeviceSink 输出",
-          Result, h_ar_ImplExec, uint8_t *impl) { return render_once(impl + 0x60, g_frame, &g_frame_n); }   // AudioRendererImpl 里的 AudioRenderSystem 在 +0x60 | the AudioRenderSystem sits at +0x60 inside AudioRendererImpl
+HLE_FORCE("_ZN2nn5audio6server24AudioRendererManagerImpl17AudioRendererImpl29ExecuteAudioRendererRenderingEv", "render one frame manually: SDK generates commands + CPU processing, the host takes the DeviceSink output",
+          Result, h_ar_ImplExec, uint8_t *impl) { return render_once(impl + 0x60, g_frame, &g_frame_n); }   // the AudioRenderSystem sits at +0x60 inside AudioRendererImpl
+// SDK 20 (The Legend of Zelda: Breath of the Wild 1.9.0): the public ExecuteAudioRendererRendering (sdk+0x221e90) calls the AudioRendererImpl version through the vtable (sdk+0x22ca88, just x0 += 0x60 and a jump through the PLT to here),
+// so the takeover above is never reached. The original generates commands here without the update lock; with the render thread on the original and the game thread's RequestUpdate rendering catch-up frames ("nothing rendered since the last update"),
+// both sides wrote the same command buffer at once and CommandListProcessor::Process sometimes read a half-written command list and crashed (once at 60 s and once at 134 s in the shrine). Taken over here, so rendering goes through the host's locked render as well
+HLE_FORCE("_ZN2nn5audio6server17AudioRenderSystem29ExecuteAudioRendererRenderingEv", "render one frame manually (SDK 20, reached through the PLT): same as above, through the host's locked rendering",
+          Result, h_ars_Exec, uint8_t *sys) { return render_once(sys, g_frame, &g_frame_n); }
 
-// 两次 RequestUpdate 之间至少渲一帧。效果的「待初始化」只在游戏标「新加」的那次更新里置上（如 LightLimiterInfo::Update：isNew → 参数状态 0），
-// 下一次更新照游戏的值覆盖；中间没生成过命令，DSP 就永远收不到初始化，之后 ApplyLightLimiterEffect 读空指针。真机渲染器每 5 ms 自己出一帧、
-// 游戏又等渲染器事件，正常是一更新一帧；但开局游戏连着更新两次（相隔 0.04 ms），真出声时声卡打开慢、第一帧来得晚，两次之间没帧。
-// 这里遇到「上次更新后没渲过」就先在当前线程追渲一帧；输出进队列，渲染线程下一轮放它、不再另渲。
 // At least one rendered frame between two RequestUpdates. An effect's "needs initialization" is set only by the update in which the game flags it as new (e.g. LightLimiterInfo::Update: isNew → parameter status 0);
 // the next update overwrites it with the game's value; if no commands were generated in between, the DSP never receives the initialization and ApplyLightLimiterEffect later reads a null pointer. The real renderer produces a frame every 5 ms on its own
 // and the game waits on the renderer event, so normally it is one update per frame; but at start-up the game updates twice in a row (0.04 ms apart), and with real audio output the sound card opens slowly and the first frame comes late, leaving no frame in between.
 // Here, when nothing has been rendered since the last update, one catch-up frame is rendered on the current thread first; its output is queued and played by the render thread in place of its next render.
-HLE_FORCE("_ZN2nn5audio6server17AudioRenderSystem6UpdateEPvmS3_mPKvm", "渲染器更新：上次更新后没渲过就先追渲一帧（保证效果初始化），再交 SDK",
+// Catch-up frames keep real time: when the queue is full the update waits for the render thread to play one (at most 50 ms). Square Enix's sound driver (DRAGON QUEST XI S,
+// SQEX::Sd::Driver::Core::CoreAudioOut, main+0x442c5c0) refills its voices in a loop: append a wave buffer, RequestUpdate, take the next released buffer, and it waits on the renderer
+// event only when none is released. Every update there renders a catch-up frame, which releases the buffer just appended, so the loop never waits: discarding catch-up output when the
+// queue was full ran it at 11,000 updates a second on one core, the game's sound about 50 times faster than the output. Waiting keeps the queue full instead: the render thread then
+// only plays queued frames, and the driver's own updates render every frame. A queued frame does not signal the renderer event: the SDK signals it in each render, and a game woken by a
+// queued frame updated with nothing rendered since, which rendered the next catch-up frame, and so on (Big Brain Academy: Brain vs. Brain, one catch-up per update instead of 37 a run)
+HLE_FORCE("_ZN2nn5audio6server17AudioRenderSystem6UpdateEPvmS3_mPKvm", "renderer update: if nothing was rendered since the last update, render a catch-up frame first (so effects get initialized), then hand over to the SDK",
           Result, h_ars_Update, uint8_t *sys, void *o, size_t on, void *p, size_t pn, const void *in, size_t inn) {
     static Result (*orig)(void *, void *, size_t, void *, size_t, const void *, size_t); if (!orig) orig = gsym("_ZN2nn5audio6server17AudioRenderSystem6UpdateEPvmS3_mPKvm");
-    atomic_store(&g_acnh_system,(uintptr_t)sys);
     static uint64_t last_r = ~0ull;
     uint64_t u = atomic_fetch_add(&g_updates, 1) + 1, r = atomic_load(&g_renders);
-    // 启动后仅由输出时钟推进音频，防止额外补帧推进短音效。
-    // After startup, only the output clock advances audio; extra catch-up frames can advance short sounds.
-    int single_clock=getenv("ACNH_SINGLE_AUDIO_CLOCK") && !strcmp(dm_main_build(),"ff1d1c05670db6021c85b624a710b963");
-    if ((!single_clock || u<=8) && last_r != ~0ull && r == last_r) {
+    if (last_r != ~0ull && r == last_r) {
         uint64_t c = atomic_fetch_add(&g_catchups, 1) + 1;
-        if (c <= 3) LOG("audren：第 %llu 次更新前没渲过帧，先追渲一帧（累计 %llu 次）", (unsigned long long)u, (unsigned long long)c);
+        if (c <= 3) LOG("audren: no frame rendered before update %llu, rendering a catch-up frame first (%llu so far)", (unsigned long long)u, (unsigned long long)c);
         uint32_t t = atomic_load(&g_cq_tail);
+        if (t - atomic_load(&g_cq_head) >= CQ) {   // queue full: wait for the render thread to play one (every 5 ms), so catch-up frames keep real time; at most 50 ms (an output that stopped)
+            struct timespec dl; clock_gettime(CLOCK_REALTIME, &dl); dl.tv_nsec += 50000000; if (dl.tv_nsec >= 1000000000) { dl.tv_sec++; dl.tv_nsec -= 1000000000; }
+            pthread_mutex_lock(&g_cq_mu);
+            while (atomic_load(&g_open) && t - atomic_load(&g_cq_head) >= CQ && !pthread_cond_timedwait(&g_cq_cv, &g_cq_mu, &dl)) {}
+            pthread_mutex_unlock(&g_cq_mu);
+        }
         if (t - atomic_load(&g_cq_head) < CQ) { render_once(sys, g_cq[t % CQ], &g_cq_n[t % CQ]); atomic_store(&g_cq_tail, t + 1); }
-        else render_once(sys, NULL, NULL);   // 队列满（不该发生）：照渲，输出丢弃 | queue full (should not happen): render anyway, output discarded
+        else render_once(sys, NULL, NULL);   // still full (the output stopped): render anyway, output discarded
     }
     static int tr = -1; if (tr < 0) tr = getenv("DM_AUDREN_TRACE") != NULL;
-    if (tr && u < 200) LOG("audren 更新 #%llu t=%.3f ms 距上次更新渲了 %llu 帧", (unsigned long long)u, now_ns() / 1e6, (unsigned long long)(atomic_load(&g_renders) - (last_r == ~0ull ? 0 : last_r)));
+    if (tr && u < 200) LOG("audren update #%llu t=%.3f ms, %llu frames rendered since the last update", (unsigned long long)u, now_ns() / 1e6, (unsigned long long)(atomic_load(&g_renders) - (last_r == ~0ull ? 0 : last_r)));
     Result res = orig(sys, o, on, p, pn, in, inn);
     last_r = atomic_load(&g_renders);
-    if(u%2000==0)LOG("ACNH audio clock: updates=%llu renders=%llu catchups=%llu single=%d",(unsigned long long)u,(unsigned long long)last_r,(unsigned long long)atomic_load(&g_catchups),single_clock);
     return res;
 }
 
-// 输出设备：一个内置扬声器，立体声（音频设备服务仍走 IPC，宿主直接答）
 // Output device: one built-in speaker, stereo (the audio device service still goes through IPC; the host answers directly)
 enum { DEVNAME = 0x100 };
 static void out_devname(char *out) { memset(out, 0, DEVNAME); strlcpy(out, "AudioBuiltInSpeakerOutput", DEVNAME); }
-HLE_FORCE("_ZN2nn5audio25ListAudioOutputDeviceNameEPNS0_15AudioDeviceNameEi", "输出设备列表：内置扬声器 1 个", int, h_ad_List, char *names, int n) { if (n <= 0 || !names) return 0; out_devname(names); return 1; }
-HLE_FORCE("_ZN2nn5audio30GetActiveAudioOutputDeviceNameEPNS0_15AudioDeviceNameE", "当前输出设备：内置扬声器", void, h_ad_Active, char *name) { out_devname(name); }
-// SDK 12 的旧名（Engage）：同一服务、同样回答 | The SDK 12 names (Engage): the same service, the same answers
-HLE_FORCE("_ZN2nn5audio19ListAudioDeviceNameEPNS0_15AudioDeviceNameEi", "输出设备列表（SDK 12 名）：内置扬声器 1 个", int, h_ad_List12, char *names, int n) { return h_ad_List(names, n); }
-HLE_FORCE("_ZN2nn5audio24GetActiveAudioDeviceNameEPNS0_15AudioDeviceNameE", "当前输出设备（SDK 12 名）：内置扬声器", void, h_ad_Active12, char *name) { out_devname(name); }
-HLE_FORCE("_ZN2nn5audio41GetActiveAudioDeviceChannelCountForOutputEv", "输出声道数：2", int, h_ad_Channels, void) { return 2; }
-HLE_FORCE("_ZN2nn5audio26SetAudioDeviceOutputVolumeEPKNS0_15AudioDeviceNameEf", "设备音量；宿主忽略", void, h_ad_SetVol, const char *name, float v) { (void)name; (void)v; }
-HLE_FORCE("_ZN2nn5audio39AcquireAudioDeviceNotificationForOutputEPNS_2os11SystemEventE", "输出设备变化通知：绑定、永不触发", void, h_ad_Notify, void *ev) { hle_bind_system_event(ev, 0); }
+HLE_FORCE("_ZN2nn5audio25ListAudioOutputDeviceNameEPNS0_15AudioDeviceNameEi", "output device list: 1 built-in speaker", int, h_ad_List, char *names, int n) { if (n <= 0 || !names) return 0; out_devname(names); return 1; }
+HLE_FORCE("_ZN2nn5audio30GetActiveAudioOutputDeviceNameEPNS0_15AudioDeviceNameE", "active output device: built-in speaker", void, h_ad_Active, char *name) { out_devname(name); }
+// The SDK 12 names (Engage): the same service, the same answers
+HLE_FORCE("_ZN2nn5audio19ListAudioDeviceNameEPNS0_15AudioDeviceNameEi", "output device list (SDK 12 name): 1 built-in speaker", int, h_ad_List12, char *names, int n) { return h_ad_List(names, n); }
+HLE_FORCE("_ZN2nn5audio24GetActiveAudioDeviceNameEPNS0_15AudioDeviceNameE", "active output device (SDK 12 name): built-in speaker", void, h_ad_Active12, char *name) { out_devname(name); }
+HLE_FORCE("_ZN2nn5audio41GetActiveAudioDeviceChannelCountForOutputEv", "output channel count: 2", int, h_ad_Channels, void) { return 2; }
+// Device volume: kept and read back (DRAGON QUEST VII Reimagined reads it at boot, main+0xee8edc), not applied: the host's output has the system's own volume
+static _Atomic float g_dev_vol = 1.0f;
+HLE_FORCE("_ZN2nn5audio26SetAudioDeviceOutputVolumeEPKNS0_15AudioDeviceNameEf", "device volume; kept for the getter, not applied by the host", void, h_ad_SetVol, const char *name, float v) { (void)name; atomic_store(&g_dev_vol, v); }
+HLE_FORCE("_ZN2nn5audio26GetAudioDeviceOutputVolumeEPKNS0_15AudioDeviceNameE", "device volume: what the game last set (1.0 at start)", float, h_ad_GetVol, const char *name) { (void)name; return atomic_load(&g_dev_vol); }
+HLE_FORCE("_ZN2nn5audio39AcquireAudioDeviceNotificationForOutputEPNS_2os11SystemEventE", "output device change notification: bound, never signaled", void, h_ad_Notify, void *ev) { hle_bind_system_event(ev, 0); }
+// SDK 7 names of the two above (Super Mario Odyssey): the device-switch event and the active channel count
+HLE_FORCE("_ZN2nn5audio36AcquireAudioDeviceSwitchNotificationEPNS_2os11SystemEventE", "output device switch notification (SDK 7 name): bound, never signaled", void, h_ad_Notify7, void *ev) { hle_bind_system_event(ev, 0); }
+HLE_FORCE("_ZN2nn5audio21GetActiveChannelCountEv", "output channel count (SDK 7 name): 2", int, h_ad_Channels7, void) { return 2; }

@@ -4,44 +4,10 @@ import importlib.util, json, struct, sys, tempfile, unittest, zipfile, hashlib
 from pathlib import Path
 sys.dont_write_bytecode=True
 from pack_shell import extract_shell
-from check_invariance import check_invariance, check_alpha_test
 from build_shell import ROOT, source_id
 from audit_release import audit, APP_ICON
 
 class ShellTests(unittest.TestCase):
-    def test_ui_alpha_pack(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            p=Path(tmp)
-            with self.assertRaises(ValueError):check_alpha_test(p)
-            keys=('1bbd8e6baf1769fe_b','9aaab9f97ef18924_b','5c518b71b8502c40_b')
-            manifest={}
-            for key in keys:
-                data=key.encode()
-                (p/(key+'.metallib')).write_bytes(data)
-                (p/(key+'.json')).write_text(json.dumps({'acnh_alpha_test':True,'acnh_alpha_test_buffer':30}))
-                manifest[key]={'ios':hashlib.sha256(data).hexdigest()}
-            (p/'alpha-test.json').write_text(json.dumps(manifest))
-            self.assertEqual(check_alpha_test(p),3)
-            lib=p/(keys[0]+'.metallib');lib.write_bytes(b'stale')
-            with self.assertRaises(ValueError):check_alpha_test(p)
-            lib.write_bytes(keys[0].encode())
-            (p/(keys[0]+'.json')).write_text('{}')
-            with self.assertRaises(ValueError):check_alpha_test(p)
-
-    def test_vertex_pack_invariance(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            p=Path(tmp)
-            with self.assertRaises(ValueError):check_invariance(p)
-            (p/'abc_b.json').write_text(json.dumps({'stage':'vs'}))
-            (p/'abc_b.metallib').write_bytes(b'correct compiled library')
-            report={'shaders':{'abc_b':{'ios':hashlib.sha256(b'correct compiled library').hexdigest()}}}
-            (p/'position-invariance.json').write_text(json.dumps(report))
-            self.assertEqual(check_invariance(p),1)
-            (p/'abc_b.metallib').write_bytes(b'stale library')
-            with self.assertRaises(ValueError):check_invariance(p)
-            (p/'def_b.json').write_text(json.dumps({'stage':'vs'}))
-            with self.assertRaises(ValueError):check_invariance(p)
-
     def test_archive_paths(self):
         for entry in ['../escape', '/absolute', 'Payload/ACNHMobile.app/../../escape', 'Payload/ACNHMobile.app/dir\\escape']:
             with self.subTest(entry=entry), tempfile.TemporaryDirectory() as tmp:

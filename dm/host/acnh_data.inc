@@ -20,8 +20,8 @@ static int acnh_path(const char *src,char out[1024]){
 static const char *acnh_string(acnh_pack *p,uint64_t off){if(off>=p->nstrings)return NULL;const char *s=p->strings+off;return memchr(s,0,p->nstrings-off)?s:NULL;}
 static size_t acnh_lower(acnh_pack *p,const char *path){size_t a=0,b=p->nfiles;while(a<b){size_t m=a+(b-a)/2;if(strcmp(p->strings+p->files[m].path,path)<0)a=m+1;else b=m;}return a;}
 const char *dm_acnh_data_root(void){acnh_pack*p=atomic_load(&g_acnh_pack);return p?p->root:NULL;}
-int dm_acnh_data_mount(const char *root,char *why,size_t cap){
- pthread_mutex_lock(&g_acnh_pack_lock);acnh_pack *old=atomic_load(&g_acnh_pack);if(old){int ok=!strcmp(old->root,root);pthread_mutex_unlock(&g_acnh_pack_lock);return ok?1:acnh_fail(why,cap,"已有另一个数据包正在使用");}
+static int acnh_load(const char *root,char *why,size_t cap,int publish,int deep,void (*progress)(double)){
+ pthread_mutex_lock(&g_acnh_pack_lock);acnh_pack *old=atomic_load(&g_acnh_pack);if(old && publish){int ok=!strcmp(old->root,root);pthread_mutex_unlock(&g_acnh_pack_lock);return ok?1:acnh_fail(why,cap,"已有另一个数据包正在使用");}
  acnh_pack*p=calloc(1,sizeof *p);int index=-1;const char *error="数据包索引无效";if(!p)goto fail;for(int i=0;i<100;i++)p->fds[i]=-1;
  char name[1200];if(strlen(root)>=sizeof p->root)goto fail;strlcpy(p->root,root,sizeof p->root);snprintf(name,sizeof name,"%s/ACNH-index.data",root);
  index=open(name,O_RDONLY|O_NOFOLLOW);struct stat st;if(index<0||fstat(index,&st)||!S_ISREG(st.st_mode)||st.st_size<96||st.st_size>128*1024*1024){error="缺少或无法读取 ACNH-index.data";goto fail;}
@@ -42,9 +42,22 @@ int dm_acnh_data_mount(const char *root,char *why,size_t cap){
   if(!strcmp(s,"Shader/Park_UBER_All.Nin_NX_NVN.szs"))marker=1;
  }
  if(!marker){error="这不是动森资源包";goto fail;}
- atomic_store(&g_acnh_pack,p);pthread_mutex_unlock(&g_acnh_pack_lock);return 1;
+ if(deep){
+  uint8_t *block=malloc(1024*1024);if(!block){error="Not enough memory to verify data";goto fail;}
+  for(size_t i=0;i<nf;i++){
+   const acnh_file*f=&p->files[i];CC_SHA256_CTX ctx;CC_SHA256_Init(&ctx);uint64_t done=0;
+   while(done<f->size){size_t n=(size_t)(f->size-done);if(n>1024*1024)n=1024*1024;ssize_t got=pread(p->fds[f->part],block,n,(off_t)(f->offset+done));if(got<=0){free(block);error="Data part read failed";goto fail;}CC_SHA256_Update(&ctx,block,(CC_LONG)got);done+=got;}
+   uint8_t hash[32];CC_SHA256_Final(hash,&ctx);if(memcmp(hash,f->sha256,32)){free(block);error="Resource SHA256 mismatch";goto fail;}
+   if(progress && (!(i%256)||i+1==nf))progress((double)(i+1)/nf);
+  }free(block);
+ }
+ if(publish)atomic_store(&g_acnh_pack,p);
+ else{for(size_t i=0;i<p->nparts;i++)close(p->fds[i]);munmap(p->map,p->bytes);free(p);}
+ pthread_mutex_unlock(&g_acnh_pack_lock);return 1;
  fail:if(index>=0)close(index);if(p){for(int i=0;i<100;i++)if(p->fds[i]>=0)close(p->fds[i]);if(p->map)munmap(p->map,p->bytes);free(p);}pthread_mutex_unlock(&g_acnh_pack_lock);return acnh_fail(why,cap,error);
 }
+int dm_acnh_data_mount(const char *root,char *why,size_t cap){return acnh_load(root,why,cap,1,0,NULL);}
+int dm_acnh_data_verify(const char *root,int deep,void (*progress)(double),char *why,size_t cap){return acnh_load(root,why,cap,0,deep,progress);}
 int dm_acnh_data_stat(const char *path,int *directory,int64_t *size){
  acnh_pack*p=atomic_load(&g_acnh_pack);char q[1024];if(!p||!acnh_path(path,q))return 0;
  if(!q[0]){*directory=1;*size=0;return 1;}size_t i=acnh_lower(p,q);if(i<p->nfiles&&!strcmp(q,p->strings+p->files[i].path)){*directory=0;*size=p->files[i].size;return 1;}

@@ -7,9 +7,9 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def source_id(root):
     """Fingerprint compatibility code, not locally regenerated shader metadata."""
-    excluded = {'shader_map.tsv', 'shader_facts.tsv', 'shader_pairs.tsv', 'c1_full.tsv', 'dmsh_chain.h', 'dmsh_chain.lock'}
+    excluded = {'shader_map.tsv', 'shader_facts.tsv', 'shader_pairs.tsv', 'c1_full.tsv', 'dmsh_chain.h', 'dmsh_chain.lock', 'cb_extent.tsv'}
     h = hashlib.sha256()
-    for base in ['dm/host', 'dm/gfx', 'dm/ios-acnh/Sources', 'dm/ios/Sources', 'dm/games/acnh']:
+    for base in ['dm/host', 'dm/gfx', 'dm/ios-acnh/Sources', 'dm/ios/Sources', 'dm/games/01006F8002326000']:
         for p in sorted((root/base).rglob('*')):
             if p.is_file() and p.suffix in {'.c', '.h', '.m', '.S', '.inc', '.py', '.tsv', '.cs', '.csproj'} and p.name not in excluded and not any(x in {'gen','bin','obj','__pycache__'} for x in p.relative_to(root).parts):
                 h.update(str(p.relative_to(root)).encode()+b'\0'+p.read_bytes()+b'\0')
@@ -41,8 +41,11 @@ def main():
     if a.work.exists(): raise ValueError('Choose a new empty work path')
     a.work.mkdir(parents=True)
     tree=a.work/'tree'; shutil.copytree(ROOT,tree,ignore=shutil.ignore_patterns('.git','.venv','local','outputs','__pycache__','Gen','gen','bin','obj','build','*.xcodeproj','*.xcworkspace','*.dSYM'))
-    ios=tree/'dm/ios-acnh'; gen=ios/'Gen'; (gen/'dm').mkdir(parents=True); (gen/'msl').mkdir()
-    e=dict(os.environ,GAME='acnh',ACNH_RENDER_FLAGS='-DDM_NVN_M3=1',DM_BUNDLE_ID='org.acnhmobile.experimental',DM_DISPLAY_NAME='ACNH Mobile',DM_TEAM_ID='0000000000',DM_APP_CATEGORY='public.app-category.games')
+    ios=tree/'dm/ios'; gen=ios/'Gen'; (gen/'dm').mkdir(parents=True); (gen/'msl').mkdir()
+    e=dict(os.environ,GAME='01006F8002326000',DM_BUNDLE_ID='org.acnhmobile.experimental',DM_DISPLAY_NAME='ACNH Mobile',DM_TEAM_ID='0000000000',DM_APP_CATEGORY='public.app-category.games')
+    version=json.loads((ROOT/'config/version.json').read_text())
+    e.update(DM_APP_VERSION=version['version'],DM_BUILD_NUMBER=str(version['build']),DM_SHOW_FPS='NO',DM_LANG='zh-Hans')
+    e.pop('ACNH_RENDER_FLAGS',None);e.pop('DM_ENV_FILE',None)
     config=subprocess.check_output(['python3',ios/'tools/gen_build.py',tree/'dm/host',gen],env=e,text=True)
     config=re.sub(r'(?m)^OTHER_CFLAGS = (.*)$',r'OTHER_CFLAGS = \1 -DDM_SHELL=1',config)
     config+='\nOTHER_LDFLAGS = $(inherited) $(DM_FRAMEWORKS)\n'
@@ -53,7 +56,7 @@ def main():
     iconset=gen/'Assets.xcassets/AppIcon.appiconset'; iconset.mkdir()
     (iconset/'Contents.json').write_text(json.dumps({'images':[{'filename':'icon.png','idiom':'universal','platform':'ios','size':'1024x1024'}],'info':{'author':'xcode','version':1}}))
     shutil.copyfile(ios/'Resources/AppIcon.png', iconset/'icon.png')
-    shutil.copyfile(tree/'config/runtime.env',gen/'dm/env.txt')
+    (gen/'dm/env.txt').write_text('# Official Metal 4 defaults; no legacy overrides.\n')
     version=json.loads((ROOT/'config/version.json').read_text())
     metadata={'format':1,'source_id':source_id(ROOT),'build':version['build'],'version':version['version'],'modules':['main','subsdk0','sdk'],'minimum_ios':'26.0','game_content':False}
     (gen/'dm/shell_info.json').write_text(json.dumps(metadata,indent=2)+'\n')
@@ -75,6 +78,9 @@ def main():
             if p.is_file(): z.write(p,'Payload/ACNHMobile.app/'+str(p.relative_to(stage)))
     (a.output/'shell-audit.json').write_text(json.dumps(dict(metadata,files=files),indent=2)+'\n')
     (a.output/'SHA256SUMS.txt').write_text(hashlib.sha256(archive.read_bytes()).hexdigest()+'  '+archive.name+'\n')
-    print(archive)
+    ipa=a.output/('ACNHMobile-iOS26-v'+version['version']+'-build'+str(version['build'])+'-shell-unsigned.ipa')
+    shutil.copyfile(archive,ipa)
+    (a.output/'SHA256SUMS.txt').write_text(''.join(hashlib.sha256(p.read_bytes()).hexdigest()+'  '+p.name+'\n' for p in [ipa,archive]))
+    print(ipa)
 
 if __name__=='__main__': main()

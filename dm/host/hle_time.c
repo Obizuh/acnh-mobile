@@ -1,250 +1,139 @@
-// nn::time：真机经 time 服务取网络校准的用户时钟；宿主直接取系统时钟（单机、离线）。
-// 布局按公开 Horizon ABI：PosixTime = int64 秒；CalendarTime = {s16 年, s8 月/日/时/分/秒}；
-// CalendarAdditionalInfo = {u32 星期, u32 年内日, char 时区名[8], u32 夏令时, s32 UTC 偏移秒}。
 // nn::time: a real device gets the network-calibrated user clock through the time service; the host reads the system clock directly (single machine, offline).
 // Layout follows the public Horizon ABI: PosixTime = int64 seconds; CalendarTime = {s16 year, s8 month/day/hour/minute/second};
 // CalendarAdditionalInfo = {u32 day of week, u32 day of year, char time zone name[8], u32 DST, s32 UTC offset in seconds}.
 #include "hle.h"
 #include <stdatomic.h>
 #include <time.h>
-#include <sys/sysctl.h>
-#include <sys/time.h>
-#include <CoreFoundation/CoreFoundation.h>
 
 typedef struct { int16_t year; int8_t month, day, hour, minute, second; int8_t pad; } CalendarTime;
 typedef struct { uint32_t wday, yday; char tzname[8]; uint32_t dst; int32_t offset; } CalendarAdditionalInfo;
 
-// DM_FIXED_TIME=秒（确定性对拍用；真值侧对应 dm/verify/ryu/drive.py --fix-time）：
-// ① 用户时钟（存档 d2s +0x20 最后游玩时间、.meta last_modified_time 的来源）恒返回该值；
-// ② 建局随机数种子那一处 time()（main 0x3509a0 bl time，返回点 0x3509a4，与 drive.py 同点）返回该值。
-// 本 SDK 的 libc time() 是开机时长（clock_gettime(0) → __nnmusl_ClockGetTime → GetSystemTick），不是墙钟；
-// main 另有 17 处 time() 调用不动，原样转给 SDK 自己的 time()。
-// DM_FIXED_TIME=seconds (for deterministic comparison; the ground-truth side counterpart is dm/verify/ryu/drive.py --fix-time):
-// ① the user clock (source of the save's d2s +0x20 last-played time and .meta last_modified_time) always returns this value;
-// ② the one time() at the game-creation random seed (main 0x3509a0 bl time, return point 0x3509a4, same point as drive.py) returns this value.
-// This SDK's libc time() is uptime (clock_gettime(0) → __nnmusl_ClockGetTime → GetSystemTick), not wall clock;
-// the other 17 time() call sites in main are left alone and forwarded unchanged to the SDK's own time().
+// DM_FIXED_TIME=seconds (for deterministic comparison): the user clock always returns this value (and main.c pins the host time zone to UTC)
 static int64_t fixed_time(void) {
     static int64_t v = -2;
     if (v == -2) { const char *e = getenv("DM_FIXED_TIME"); v = e ? strtoll(e, 0, 0) : -1;
-                   if (v >= 0) LOG("DM_FIXED_TIME=%lld：用户时钟与建局 time()（main 0x3509a4）返回定值", (long long)v); }
+                   if (v >= 0) LOG("DM_FIXED_TIME=%lld: the user clock returns a fixed value", (long long)v); }
     return v;
 }
-HLE_FORCE("time", "按返回点认出建局种子那一处（DM_FIXED_TIME）；其余原样转调 SDK 的 time()", int64_t, h_time_time, int64_t *t) {
-    uint64_t lr = (uint64_t)__builtin_return_address(0);
-    static int64_t (*sdk_time)(int64_t *); static uint64_t seed_ret;
-    if (!sdk_time) {
-        module_t *ms = NULL, *mm = NULL;
-        for (int i = 0; i < g_nmod; i++) { if (!strcmp(g_mod[i].name, "sdk")) ms = &g_mod[i]; if (!strcmp(g_mod[i].name, "main")) mm = &g_mod[i]; }
-        void *f = ms ? module_sym(ms, "time") : NULL; if (!f) die("SDK 里找不到 time");
-        uint32_t w = mm && !strcmp(mm->build_id, DM_D2R_BUILD) ? *(uint32_t *)(mm->base + 0x3509a0) : 0;   // 只在 D2R 构建上读（别的游戏这里是不相干的代码，main 小于 3.3 MB 还会越界） | read only on the D2R build (elsewhere this is unrelated code, and a main smaller than 3.3 MB would be read past its end)
-        if ((w & 0xfc000000) == 0x94000000) seed_ret = (uint64_t)mm->base + 0x3509a4;               // bl time（构建 db0507f3…；改写器会改跳转目标，只认 bl 本身） | bl time (build db0507f3…; the rewriter changes the branch target, so only the bl itself is matched)
-        else if (fixed_time() >= 0) LOG("【红】DM_FIXED_TIME：main 0x3509a0 不是预期的 bl time（%#x），建局 time() 未固定", w);
-        sdk_time = (int64_t (*)(int64_t *))f;
-    }
-    int64_t ft = fixed_time();
-    if (ft >= 0 && lr == seed_ret) {
-        static int once; if (!once++) LOG("DM_FIXED_TIME：建局 time() 返回 %lld", (long long)ft);
-        if (t) *t = ft; return ft;
-    }
-    return sdk_time(t);
+HLE_FORCE("_ZN2nn4time10InitializeEv", "connect to the time service; clocks come from the host system time instead", Result, h_time_Initialize, void) { return RES_OK; }
+HLE_FORCE("_ZN2nn4time13IsInitializedEv", "the time service is taken over, always initialized", int, h_time_IsInitialized, void) { return 1; }
+// Steady clock (seconds since boot + a clock source ID, a 16-byte UUID): the host's monotonic seconds with a fixed source ID. GetSpanBetween runs as is in sdk: it subtracts only when the source IDs match
+HLE_FORCE("_ZN2nn4time19StandardSteadyClock19GetCurrentTimePointEPNS0_20SteadyClockTimePointE", "steady clock → host monotonic clock (seconds), fixed source ID", Result, h_time_SteadyNow, uint8_t *out) {
+    int64_t s = (int64_t)(clock_gettime_nsec_np(CLOCK_MONOTONIC) / 1000000000ull);
+    memcpy(out, &s, 8); memcpy(out + 8, "dmhost-steady-01", 16); return RES_OK;
 }
-
-HLE_FORCE("_ZN2nn4time10InitializeEv", "连 time 服务；时钟改取宿主系统时间", Result, h_time_Initialize, void) { return RES_OK; }
-HLE_FORCE("_ZN2nn4time13IsInitializedEv", "time 服务已被接管，恒为已初始化", int, h_time_IsInitialized, void) { return 1; }
-HLE_FORCE("_ZN2nn4time23StandardUserSystemClock14GetCurrentTimeEPNS0_9PosixTimeE", "用户时钟 → 宿主 time()", Result, h_time_GetCurrentTime, int64_t *out) {
+HLE_FORCE("_ZN2nn4time38GetStandardSteadyClockCurrentTimePointEPNS0_20SteadyClockTimePointE", "steady clock (the free function form, SDK 20) → host monotonic clock", Result, h_time_SteadyNowFn, uint8_t *out) { return h_time_SteadyNow(out); }
+HLE_FORCE("_ZN2nn4time23StandardUserSystemClock14GetCurrentTimeEPNS0_9PosixTimeE", "user clock → host time()", Result, h_time_GetCurrentTime, int64_t *out) {
     int64_t ft = fixed_time(); *out = ft >= 0 ? ft : time(NULL); return RES_OK;
 }
-// 动森 3.0.3 另用可调用户时钟：宿主时钟直接随系统，无需启动原版 time 服务做 Adjust。
-// ACNH 3.0.3 also uses the adjustable user clock: the host clock already follows the system, without the original time service's Adjust step.
-HLE_FORCE("_ZN2nn4time25AdjustableUserSystemClock6AdjustEv", "可调时钟直接跟宿主系统", Result, h_time_Adjust, void) { return RES_OK; }
-HLE_FORCE("_ZN2nn4time25AdjustableUserSystemClock14GetCurrentTimeEPNS0_9PosixTimeE", "可调用户时钟取宿主时间", Result, h_time_AdjustableGet, int64_t *out) { return h_time_GetCurrentTime(out); }
-// 首领连战第 6–10 关的强制恐怖地带（dm_bossrush.c 设）：g_dm_tz_time 非 0 且未过期时，只有「恐怖地带」那几处取时钟拿到它，存档时间等其余调用照旧。
-// 哪几处：返回点落在地带函数 0x58f1e0 起的那一簇（0x58f1e0–0x591440），或返回后 8 条指令内调地带日程 0x58f310（服务端 0x636b38 套地带、0x694b48 等 9 处）。
-// 过期：dm_bossrush 每拍续 1 秒，本局停拍（退出 / 崩溃）后不再生效，下一局建局时取到的是真实时钟。
-// Forced Terror Zone for stages 6–10 of the boss rush (set by dm_bossrush.c): when g_dm_tz_time is non-zero and not expired, only the clock reads at the "Terror Zone" sites get it; save timestamps and all other calls are unchanged.
-// Which sites: the return point falls in the cluster starting at the zone function 0x58f1e0 (0x58f1e0–0x591440), or the zone schedule 0x58f310 is called within 8 instructions after the return (server side 0x636b38 applying the zone, 0x694b48 and so on, 9 sites).
-// Expiry: dm_bossrush renews it by 1 second every tick; once this run stops ticking (exit / crash) it no longer applies, and the next run gets the real clock when the game is created.
-_Atomic int64_t g_dm_tz_time;
-_Atomic uint64_t g_dm_tz_live_ns;
-static int tz_site(uint64_t lr) {   // 只在强制期间才判，每次读返回点后 8 条指令，不缓存（多线程都会取时钟） | Checked only while forcing is active, reading the 8 instructions after the return point each time, no caching (several threads read the clock)
-    static _Atomic uint64_t base; uint64_t b = atomic_load(&base);
-    if (!b) { for (int i = 0; i < g_nmod; i++) if (!strcmp(g_mod[i].name, "main")) b = (uint64_t)g_mod[i].base; atomic_store(&base, b); }
-    if (!b || lr < b) return 0;
-    uint64_t off = lr - b; if (off > 0x58f1e0 && off < 0x591440) return 1;
-    for (int k = 0; k < 8; k++) { uint32_t w = *(const uint32_t *)(uintptr_t)(lr + 4 * k);
-        if ((w & 0xfc000000) == 0x94000000) { int64_t imm = w & 0x3ffffff; if (imm & 0x2000000) imm -= 1 << 26; if (off + 4 * k + imm * 4 == 0x58f310) return 1; } }
-    return 0;
+// The adjustable user clock (Animal Crossing: New Horizons 3.0.3, whose days follow it): the SDK keeps it in a MonotonicSystemClock that Adjust sets from the user clock's context, and its
+// GetCurrentTime reads the time service's shared memory, which the host never maps (an abort in MonotonicSystemClock::GetCurrentTime, sdk+0x4421cc on that build). On the host the user clock
+// is the host's own clock, so it is this one too; Adjust runs natively (it reads the user clock context, a host take-over) and only sets the SDK's copy
+HLE_FORCE("_ZN2nn4time25AdjustableUserSystemClock14GetCurrentTimeEPNS0_9PosixTimeE", "adjustable user clock → host time(), as the user clock", Result, h_time_AdjGetCurrentTime, int64_t *out) { return h_time_GetCurrentTime(out); }
+// The C library's real-time clock (SDK 17): clock_gettime(CLOCK_REALTIME) calls the source that nntimeStartup selects once time::Initialize succeeds (sdk+0x8e414: 1 = the standard user clock,
+// 2 = the adjustable one; 0, the system tick, before that), and std::chrono::system_clock::now() throws on its failure. The SDK's getters ask the time service: Ace Attorney Investigations
+// Collection called std::terminate at its first real-time read, right after the first-boot language dialog (main+0x3f3f68; found by armyja, GitHub issue #18). The host user clock, to the nanosecond
+static int h_time_timespec(int64_t *ts) {
+    int64_t ft = fixed_time();
+    if (ft >= 0) { ts[0] = ft; ts[1] = 0; return 0; }
+    struct timespec t; clock_gettime(CLOCK_REALTIME, &t); ts[0] = t.tv_sec; ts[1] = t.tv_nsec; return 0;
 }
-HLE_FORCE("_ZN2nn4time23StandardUserSystemClock3nowEv", "用户时钟 → 宿主 time()；首领连战强制地带时恐怖地带那几处另返回", int64_t, h_time_now, void) {
-    int64_t tz = atomic_load(&g_dm_tz_time);
-    if (tz && (uint64_t)clock_gettime_nsec_np(CLOCK_MONOTONIC) < atomic_load(&g_dm_tz_live_ns) && tz_site((uint64_t)__builtin_return_address(0))) return tz;
+HLE_FORCE("_ZN2nn4time41GetStandardUserSystemClockCurrentTimespecEP8timespec", "C library real-time clock from the user clock → host real time", int, h_time_StdTimespec, int64_t *ts) { return h_time_timespec(ts); }
+HLE_FORCE("_ZN2nn4time43GetAdjustableUserSystemClockCurrentTimespecEP8timespec", "C library real-time clock from the adjustable user clock → host real time", int, h_time_AdjTimespec, int64_t *ts) { return h_time_timespec(ts); }
+// User clock context (0x20 bytes: s64 offset + the steady time point it was made at; user time = offset + a steady time point of the same source ID, the snapshot below fills its +0x00 the same way).
+// The SDK reads it from the time service's shared memory, which the host never opens: it returns 0x74 and writes nothing. Unity's DateTime.UtcNow (Engage main+0x4ad40c; Ace Attorney Investigations
+// 1&2 per PR #14) then never starts its clock and reads 0001-01-01. Unity takes its time from GetCurrentTime plus system ticks and only compares the context to notice the clock being set, so like a
+// Switch's it stays the same until the host clock moves against the guest ticks by more than a second (clock set by hand, a sleep mach_absolute_time did not count); with DM_FIXED_TIME it is made once
+HLE_FORCE("_ZN2nn4time23StandardUserSystemClock21GetSystemClockContextEPNS0_18SystemClockContextE", "user clock context from the time service; the host's user clock over its steady clock, renewed when the host clock is set",
+          Result, h_time_GetContext, uint8_t *out) {
+    static pthread_mutex_t mu = PTHREAD_MUTEX_INITIALIZER; static uint8_t ctx[0x20]; static int64_t drift; static int made;
+    uint8_t tp[0x18]; int64_t now; h_time_SteadyNow(tp); h_time_GetCurrentTime(&now);
+    int64_t d = now - (int64_t)(guest_ns() / 1000000000ull);
+    pthread_mutex_lock(&mu);
+    if (!made || (fixed_time() < 0 && llabs(d - drift) > 1)) {
+        int64_t off = now - *(const int64_t *)tp; memcpy(ctx, &off, 8); memcpy(ctx + 8, tp, 0x18);
+        if (made) LOG("time: host clock moved %+lld s against the guest ticks, new user clock context", (long long)(d - drift));
+        drift = d; made = 1;
+    }
+    memcpy(out, ctx, 0x20);
+    pthread_mutex_unlock(&mu);
+    return RES_OK;
+}
+HLE_FORCE("_ZN2nn4time23StandardUserSystemClock3nowEv", "user clock → host time()", int64_t, h_time_now, void) {
     int64_t ft = fixed_time(); return ft >= 0 ? ft : time(NULL); }
 HLE_FORCE("_ZN2nn4time23StandardUserSystemClock9to_time_tERKNSt3__16chrono10time_pointINS0_17SystemClockTraitsENS3_8durationIlNS2_5ratioILl1ELl1EEEEEEE",
-          "SDK 实现与 now() 配套，一并接管", int64_t, h_time_to_time_t, const int64_t *tp) { return *tp; }
+          "the SDK implementation pairs with now(), taken over with it", int64_t, h_time_to_time_t, const int64_t *tp) { return *tp; }
 HLE_FORCE("_ZN2nn4time14ToCalendarTimeEPNS0_12CalendarTimeEPNS0_22CalendarAdditionalInfoERKNS0_9PosixTimeE",
-          "连 time 服务的时区规则；改用宿主 localtime_r", Result, h_time_ToCalendarTime, CalendarTime *ct, CalendarAdditionalInfo *ai, const int64_t *pt) {
+          "time zone rules of the time service; uses the host localtime_r instead", Result, h_time_ToCalendarTime, CalendarTime *ct, CalendarAdditionalInfo *ai, const int64_t *pt) {
     time_t t = *pt; struct tm tm; localtime_r(&t, &tm);
-    static int once; if (!once++) LOG("ToCalendarTime：首次换算 %lld → %04d-%02d-%02d %02d:%02d（时区 %s，偏移 %ld 秒）", (long long)t, tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_zone ? tm.tm_zone : "?", (long)tm.tm_gmtoff);
+    static int once; if (!once++) LOG("ToCalendarTime: first conversion %lld → %04d-%02d-%02d %02d:%02d (time zone %s, offset %ld s)", (long long)t, tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_zone ? tm.tm_zone : "?", (long)tm.tm_gmtoff);
     if (ct) *ct = (CalendarTime){(int16_t)(tm.tm_year + 1900), (int8_t)(tm.tm_mon + 1), (int8_t)tm.tm_mday, (int8_t)tm.tm_hour, (int8_t)tm.tm_min, (int8_t)tm.tm_sec, 0};
     if (ai) { memset(ai, 0, sizeof *ai); ai->wday = tm.tm_wday; ai->yday = tm.tm_yday; strlcpy(ai->tzname, tm.tm_zone ? tm.tm_zone : "UTC", sizeof ai->tzname);
               ai->dst = tm.tm_isdst > 0; ai->offset = (int32_t)tm.tm_gmtoff; }
     return RES_OK;
 }
-// ACNH's displayed island time uses the explicit-rule overload. The SDK's
-// time service is absent, so loading its rule failed and the game fell back to UTC.
-// Keep an opaque host rule containing an IANA identifier; all imported rule
-// consumers below use CoreFoundation's system timezone database, including DST.
-#define HOST_ZONE_MAGIC UINT64_C(0x444d545a52554c31)
-typedef struct { uint64_t magic; char location[0x24]; uint32_t reserved; } HostZoneRule;
-_Static_assert(sizeof(HostZoneRule) == 48, "host timezone rule header");
-static void host_zone_name(char out[0x24]) {
-    memset(out, 0, 0x24);
-    const char *override = getenv("TZ");
-    if (override && *override && strlen(override) < 0x24) { strlcpy(out, override, 0x24); return; }
-    CFTimeZoneRef zone = CFTimeZoneCopySystem();
-    if (!zone || !CFStringGetCString(CFTimeZoneGetName(zone), out, 0x24, kCFStringEncodingUTF8)) strlcpy(out, "UTC", 0x24);
-    if (zone) CFRelease(zone);
-}
-static CFTimeZoneRef host_zone_open(const char *name) {
-    if (!name || !memchr(name, 0, 0x24)) return NULL;
-    CFStringRef n = CFStringCreateWithCString(NULL, name, kCFStringEncodingUTF8);
-    if (!n) return NULL;
-    CFTimeZoneRef zone = CFTimeZoneCreateWithName(NULL, n, false); CFRelease(n); return zone;
-}
-HLE_FORCE("_ZN2nn4time21GetDeviceLocationNameEPNS0_12LocationNameE", "设备时区使用完整系统标识，不返回歧义缩写", Result, h_time_LocName, char *out) {
-    if (!out) return RES_FAIL; host_zone_name(out); return RES_OK;
-}
-HLE_FORCE("_ZN2nn4time16LoadTimeZoneRuleEPNS0_12TimeZoneRuleERKNS0_12LocationNameE", "从宿主系统加载命名时区规则，不连接 time 服务", Result, h_time_LoadRule, HostZoneRule *out, const char *name) {
-    if (!out) return RES_FAIL;
-    CFTimeZoneRef zone = host_zone_open(name); if (!zone) return RES_FAIL;
-    HostZoneRule rule = {.magic = HOST_ZONE_MAGIC}; strlcpy(rule.location, name, sizeof rule.location); *out = rule; CFRelease(zone); return RES_OK;
-}
-static CFTimeZoneRef host_rule_open(const HostZoneRule *rule) {
-    return rule && rule->magic == HOST_ZONE_MAGIC ? host_zone_open(rule->location) : NULL;
-}
-static CalendarTime host_calendar(CFAbsoluteTime at, CFTimeZoneRef zone) {
-    CFGregorianDate d = CFAbsoluteTimeGetGregorianDate(at, zone);
-    return (CalendarTime){d.year, d.month, d.day, d.hour, d.minute, (int8_t)d.second, 0};
-}
-HLE_FORCE("_ZN2nn4time14ToCalendarTimeEPNS0_12CalendarTimeEPNS0_22CalendarAdditionalInfoERKNS0_9PosixTimeERKNS0_12TimeZoneRuleE", "显式时区规则日历转换，包含系统夏令时规则", Result, h_time_ToCalendarRule, CalendarTime *ct, CalendarAdditionalInfo *ai, const int64_t *pt, const HostZoneRule *rule) {
-    if (!pt) return RES_FAIL; CFTimeZoneRef zone = host_rule_open(rule); if (!zone) return RES_FAIL;
-    CFAbsoluteTime at = (double)*pt - kCFAbsoluteTimeIntervalSince1970;
-    CalendarTime cal = host_calendar(at, zone);
-    if (ct) *ct = cal;
-    if (ai) {
-        memset(ai, 0, sizeof *ai); ai->wday = (uint32_t)CFAbsoluteTimeGetDayOfWeek(at, zone) % 7;
-        CFGregorianDate d = {cal.year, cal.month, cal.day, 0, 0, 0}, jan = {cal.year, 1, 1, 0, 0, 0};
-        ai->yday = (uint32_t)((CFGregorianDateGetAbsoluteTime(d, NULL) - CFGregorianDateGetAbsoluteTime(jan, NULL)) / 86400);
-        ai->offset = (int32_t)CFTimeZoneGetSecondsFromGMT(zone, at); ai->dst = CFTimeZoneIsDaylightSavingTime(zone, at);
-        CFStringRef abbr = CFTimeZoneCopyAbbreviation(zone, at);
-        if (abbr) { CFStringGetCString(abbr, ai->tzname, sizeof ai->tzname, kCFStringEncodingUTF8); CFRelease(abbr); }
-    }
-    static int once; if (!once++) LOG("Explicit timezone rule: %s, %04d-%02d-%02d %02d:%02d", rule->location, cal.year, cal.month, cal.day, cal.hour, cal.minute);
-    CFRelease(zone); return RES_OK;
-}
-static int calendar_equal(CalendarTime a, CalendarTime b) {
-    return a.year==b.year && a.month==b.month && a.day==b.day && a.hour==b.hour && a.minute==b.minute && a.second==b.second;
-}
-HLE_FORCE("_ZN2nn4time11ToPosixTimeEPiPNS0_9PosixTimeEiRKNS0_12CalendarTimeERKNS0_12TimeZoneRuleE", "命名时区日历转绝对时间，处理夏令时重复与缺失时刻", Result, h_time_ToPosixRule, int *count, int64_t *out, int capacity, const CalendarTime *ct, const HostZoneRule *rule) {
-    if (!count || !ct || capacity < 0 || (capacity && !out)) return RES_FAIL;
-    CFTimeZoneRef zone = host_rule_open(rule); if (!zone) return RES_FAIL;
-    *count = 0;
-    CFGregorianDate d = {ct->year, ct->month, ct->day, ct->hour, ct->minute, ct->second};
-    CFAbsoluteTime naive = CFGregorianDateGetAbsoluteTime(d, NULL);
-    if (ct->year < 1 || ct->year > 9999 || !calendar_equal(*ct, host_calendar(naive, NULL))) { CFRelease(zone); return RES_FAIL; }
-    int64_t candidates[2]; int n = 0;
-    // Sampling both sides of a transition finds the two offsets of an overlap;
-    // roundtripping rejects nonexistent local times in spring's forward jump.
-    const int days[] = {-2, -1, 0, 1, 2};
-    for (unsigned i=0; i<sizeof days/sizeof *days; i++) {
-        CFAbsoluteTime at = naive - CFTimeZoneGetSecondsFromGMT(zone, naive + days[i]*86400.0);
-        if (!calendar_equal(*ct, host_calendar(at, zone))) continue;
-        int64_t t = (int64_t)(at + kCFAbsoluteTimeIntervalSince1970);
-        if ((n>0 && candidates[0]==t) || (n>1 && candidates[1]==t)) continue;
-        if (n<2) candidates[n++] = t;
-    }
-    if (n==2 && candidates[0]>candidates[1]) { int64_t t=candidates[0];candidates[0]=candidates[1];candidates[1]=t; }
-    int written = n < capacity ? n : capacity;
-    for (int i=0;i<written;i++) out[i]=candidates[i]; *count=written;
-    CFRelease(zone); return RES_OK;
-}
-// 时钟快照按 Horizon 公开 ABI（0xd0）：墙钟、单调时间及其偏移在同一次采样中一致；无网络校准，自动校准标志为 0。
-// Clock snapshots use Horizon's public 0xd0 ABI: wall time, monotonic time and offsets agree in one sample; automatic network correction is disabled.
-typedef struct { int64_t seconds; uint8_t source[16]; } HostSteadyPoint;
-typedef struct { int64_t offset; HostSteadyPoint point; } HostClockContext;
-typedef struct {
-    HostClockContext user_context, network_context;
-    int64_t user_time, network_time;
-    CalendarTime user_calendar, network_calendar;
-    CalendarAdditionalInfo user_info, network_info;
-    HostSteadyPoint steady;
-    char location[0x24];
-    uint8_t automatic, type, pad[2];
-} HostClockSnapshot;
-_Static_assert(sizeof(HostClockSnapshot) == 0xd0, "ClockSnapshot ABI");
-static uint8_t g_clock_source[16];
-static pthread_once_t g_clock_source_once = PTHREAD_ONCE_INIT;
-static void clock_source_init(void) {
-    // 启动时间形成每次宿主开机唯一、跨 App 重启稳定的时钟源；系统不允许读取时才退到本进程随机源。
-    // Boot time identifies a host boot across app restarts; use a process-local random source only if the system denies that query.
-    struct timeval boot; size_t n = sizeof boot;
-    if (!sysctlbyname("kern.boottime", &boot, &n, NULL, 0) && n == sizeof boot) {
-        uint64_t id[2] = {UINT64_C(0x444d484f5354434c) ^ (uint64_t)boot.tv_sec, (uint64_t)boot.tv_usec};
-        memcpy(g_clock_source, id, sizeof id);
-    } else arc4random_buf(g_clock_source, sizeof g_clock_source);
-}
-HLE_FORCE("_ZN2nn4time13ClockSnapshot29CreateWithStandardSystemClockEPS1_", "宿主墙钟与单调时钟快照", Result, h_time_ClockSnapshot, HostClockSnapshot *out) {
-    pthread_once(&g_clock_source_once, clock_source_init);
-    memset(out, 0, sizeof *out);
-    struct timespec mono; if (clock_gettime(CLOCK_MONOTONIC, &mono)) return RES_FAIL;
-    h_time_GetCurrentTime(&out->user_time); out->network_time = out->user_time;
-    out->steady.seconds = mono.tv_sec; memcpy(out->steady.source, g_clock_source, 16);
-    out->user_context.point = out->network_context.point = out->steady;
-    out->user_context.offset = out->network_context.offset = out->user_time - mono.tv_sec;
-    h_time_ToCalendarTime(&out->user_calendar, &out->user_info, &out->user_time);
-    out->network_calendar = out->user_calendar; out->network_info = out->user_info;
-    host_zone_name(out->location);
+// Explicit time zone rules (Monster Hunter Rise, SDK 11): LoadTimeZoneRule reads the rule from the time service; the host keeps the game's rule buffer untouched and converts with localtime_r as above
+HLE_FORCE("_ZN2nn4time16LoadTimeZoneRuleEPNS0_12TimeZoneRuleERKNS0_12LocationNameE", "time zone rule from the time service; the host converts with its own zone, the rule stays unused", Result, h_time_LoadRule,
+          void *rule, const char *name) { (void)rule; LOG("time::LoadTimeZoneRule %.36s (host time zone used instead)", name ? name : "?"); return RES_OK; }
+HLE_FORCE("_ZN2nn4time14ToCalendarTimeEPNS0_12CalendarTimeEPNS0_22CalendarAdditionalInfoERKNS0_9PosixTimeERKNS0_12TimeZoneRuleE", "conversion with an explicit time zone rule; same as the device zone (host localtime_r)",
+          Result, h_time_ToCalendarTimeRule, CalendarTime *ct, CalendarAdditionalInfo *ai, const int64_t *pt, const void *rule) { (void)rule; return h_time_ToCalendarTime(ct, ai, pt); }
+HLE_FORCE("_ZN2nn4time26StandardNetworkSystemClock20IsAccuracySufficientEv", "network clock accuracy (time service): offline, never sufficient", unsigned, h_time_NetAccurate, void) { return 0; }
+// Clock snapshot (Tears of the Kingdom: CreateWithStandardSystemClock asks the time service, which the host never opens → abort in sm::Initialize). 0xD0 bytes, laid out
+// as Ryujinx lays out the service's ClockSnapshot and as this SDK's constructor clears it (its last store is the byte at +0xcd): +0x00 user clock context {offset,
+// steady time point}, +0x20 network clock context, +0x40 user time, +0x48 network time, +0x50 / +0x58 user / network calendar, +0x60 / +0x78 their additional info,
+// +0x90 steady time point, +0xa8 location name (0x24), +0xcc automatic correction, +0xcd type. A steady time point is {int64 seconds, 16-byte source ID} (h_time_SteadyNow).
+// Offline, the network fields stay 0, so CalculateSpanBetween (below) uses the steady time points (same source ID)
+HLE_FORCE("_ZN2nn4time13ClockSnapshot29CreateWithStandardSystemClockEPS1_", "snapshot from the time service; the host fills it on the spot (offline: network clock 0)", Result, h_time_Snapshot, uint8_t *s) {
+    memset(s, 0, 0xd0);
+    uint8_t tp[0x18]; h_time_SteadyNow(tp);
+    int64_t now; h_time_GetCurrentTime(&now);
+    h_time_GetContext(s);   // +0x00: the user clock context, the same in every snapshot until the host clock is set (worked out per snapshot it moved by a second at random, a "clock change" to the user difference below)
+    memcpy(s + 0x40, &now, 8);
+    h_time_ToCalendarTime((CalendarTime *)(s + 0x50), (CalendarAdditionalInfo *)(s + 0x60), &now);
+    memcpy(s + 0x90, tp, 0x18);
+    tzset(); strlcpy((char *)s + 0xa8, tzname[0] && *tzname[0] ? tzname[0] : "UTC", 0x24);
     return RES_OK;
 }
-// Snapshot comparisons must use the same host clock model as snapshot creation.
-// A user adjustment is the change of the wall/steady offset, not elapsed play time.
-static int clock_seconds_ns(__int128 seconds, int64_t *out) {
-    __int128 ns = seconds * 1000000000;
-    if (ns < INT64_MIN || ns > INT64_MAX) return 0;
-    *out = (int64_t)ns; return 1;
+// Arithmetic on two snapshots: the SDK hands both to the time service (a call through its session, AbortImpl when there is none: STEINS;GATE RE:BOOT's and Tears of the Kingdom's SDK;
+// Tears of the Kingdom imports both); the host computes what the service does (as Ryujinx's time service). TimeSpan is nanoseconds
+static int64_t snap64(const uint8_t *s, int off) { int64_t v; memcpy(&v, s + off, 8); return v; }
+static int same_source(const uint8_t *a, const uint8_t *b, int tp) { return !memcmp(a + tp + 8, b + tp + 8, 16); }   // the source IDs of the steady time points at +tp
+HLE_FORCE("_ZN2nn4time20CalculateSpanBetweenEPNS_8TimeSpanERKNS0_13ClockSnapshotES5_", "span between two snapshots (time service): their steady time points, else their network times",
+          Result, h_time_SpanBetween, int64_t *out, const uint8_t *a, const uint8_t *b) {
+    int64_t s;
+    if (same_source(a, b, 0x90)) s = snap64(b, 0x90) - snap64(a, 0x90);
+    else if (snap64(a, 0x48) && snap64(b, 0x48)) s = snap64(b, 0x48) - snap64(a, 0x48);
+    else return RES_FAIL;   // no common clock: the service answers "not found", *out untouched (as the SDK leaves it)
+    *out = s * 1000000000; return RES_OK;
 }
-HLE_FORCE("_ZN2nn4time48CalculateStandardUserSystemClockDifferenceByUserERKNS0_13ClockSnapshotES3_",
-          "比较快照中的用户调钟偏移，不进入 time 服务", int64_t, h_time_UserClockDifference,
-          const HostClockSnapshot *a, const HostClockSnapshot *b) {
-    if (memcmp(a->user_context.point.source, b->user_context.point.source, 16) ||
-        (a->automatic && b->automatic)) return 0;
-    __int128 seconds = (__int128)b->user_context.offset - a->user_context.offset;
-    int64_t ns;
-    if (!clock_seconds_ns(seconds, &ns)) return seconds < 0 ? INT64_MIN : INT64_MAX;
-    return ns;
+// How far the user moved the user clock between two snapshots (asked at Pokémon: Let's Go's first save, PR #36): the change of the user clock offset, 0 when the two contexts' steady
+// sources differ or both snapshots have automatic correction on. The snapshots carry h_time_GetContext's context, renewed when the host clock is set, so that shows up here
+HLE_FORCE("_ZN2nn4time48CalculateStandardUserSystemClockDifferenceByUserERKNS0_13ClockSnapshotES3_", "user clock change between two snapshots (time service): from their user clock offsets",
+          int64_t, h_time_UserDiff, const uint8_t *a, const uint8_t *b) {
+    if (!same_source(a, b, 0x08) || (a[0xcc] && b[0xcc])) return 0;
+    return (snap64(b, 0x00) - snap64(a, 0x00)) * 1000000000;
 }
-HLE_FORCE("_ZN2nn4time20CalculateSpanBetweenEPNS_8TimeSpanERKNS0_13ClockSnapshotES5_",
-          "同源快照用单调时钟计算间隔，跨源回退有效网络时间", Result, h_time_SnapshotSpan,
-          int64_t *out, const HostClockSnapshot *a, const HostClockSnapshot *b) {
-    __int128 seconds;
-    if (!memcmp(a->steady.source, b->steady.source, 16))
-        seconds = (__int128)b->steady.seconds - a->steady.seconds;
-    else if (a->network_time && b->network_time)
-        seconds = (__int128)b->network_time - a->network_time;
-    else return RES_FAIL;
-    int64_t ns;
-    if (!clock_seconds_ns(seconds, &ns)) return RES_FAIL;
-    *out = ns; return RES_OK;
+// The reverse: local calendar → absolute seconds (13 Sentinels). Around a daylight-saving switch one local time maps to 0 or 2 absolute seconds; the host's mktime gives one
+HLE_FORCE("_ZN2nn4time11ToPosixTimeEPiPNS0_9PosixTimeEiRKNS0_12CalendarTimeE",
+          "time zone rules of the time service; uses the host mktime instead", Result, h_time_ToPosixTime, int *count, int64_t *out, int n, const CalendarTime *ct) {
+    struct tm tm = {.tm_year = ct->year - 1900, .tm_mon = ct->month - 1, .tm_mday = ct->day, .tm_hour = ct->hour, .tm_min = ct->minute, .tm_sec = ct->second, .tm_isdst = -1};
+    time_t t = mktime(&tm);
+    if (count) *count = n > 0;
+    if (n > 0 && out) out[0] = (int64_t)t;
+    return RES_OK;
 }
-// 本地时刻换算强制接宿主 libc：SDK 自带的 localtime / localtime_r / mktime 没有时区数据、恒按 UTC（宿主实测：编年史「首次发现」由
-// main+0xb04d34 调 localtime 再 strftime 出，差 8 小时）。真机 Switch 的 SDK 按系统时区换算，这里跟宿主系统时区走才一致；
-// 宿主 TZ 平时 = 系统时区，只在 DM_FIXED_TIME 确定性对拍时钉 UTC（main.c）。struct tm 布局两边相同（9 个 int、long 偏移、时区名指针）。
-// gmtime / gmtime_r / timegm 本来就是 UTC，不接。hle_table.c 的同名直通项只在符号没有定义时才生效（SDK 有定义），所以要 HLE_FORCE
-// Local time conversion is forced onto the host libc: the SDK's own localtime / localtime_r / mktime have no time zone data and always use UTC (measured on the host: the chronicle's 「首次发现」(First Discovered) is produced by
-// main+0xb04d34 calling localtime and then strftime, and was off by 8 hours). The SDK on a real Switch converts by the system time zone, so only following the host system time zone here is consistent;
+// With an explicit time zone rule (Pokémon Legends: Z-A, SDK 19; the rule came from the host's LoadTimeZoneRule above and stays unused): the device zone, as for ToCalendarTime
+HLE_FORCE("_ZN2nn4time11ToPosixTimeEPiPNS0_9PosixTimeEiRKNS0_12CalendarTimeERKNS0_12TimeZoneRuleE", "conversion with an explicit time zone rule; same as the device zone (host mktime)",
+          Result, h_time_ToPosixTimeRule, int *count, int64_t *out, int n, const CalendarTime *ct, const void *rule) { (void)rule; return h_time_ToPosixTime(count, out, n, ct); }
+// UTC calendar → absolute seconds (Super Mario Odyssey); no time zone involved, the host's timegm
+HLE_FORCE("_ZN2nn4time18ToPosixTimeFromUtcERKNS0_12CalendarTimeE", "UTC calendar → absolute seconds; host timegm", int64_t, h_time_ToPosixUtc, const CalendarTime *ct) {
+    struct tm tm = {.tm_year = ct->year - 1900, .tm_mon = ct->month - 1, .tm_mday = ct->day, .tm_hour = ct->hour, .tm_min = ct->minute, .tm_sec = ct->second};
+    return (int64_t)timegm(&tm);
+}
+// Local time conversion is forced onto the host libc: the SDK's own localtime / localtime_r / mktime have no time zone data and always use UTC
+// (a game's local timestamps were off by the time zone's offset). The SDK on a real Switch converts by the system time zone, so only following the host system time zone here is consistent;
 // the host TZ normally = the system time zone, and is pinned to UTC only for deterministic comparison with DM_FIXED_TIME (main.c). The struct tm layout is the same on both sides (9 ints, long offset, time zone name pointer).
 // gmtime / gmtime_r / timegm are UTC anyway and are not taken over. The same-named pass-through entries in hle_table.c only take effect when the symbol has no definition (the SDK defines them), hence HLE_FORCE
-HLE_FORCE("localtime", "本地时刻 → 宿主 localtime（跟系统时区）", struct tm *, h_localtime, const int64_t *t) { time_t v = (time_t)*t; return localtime(&v); }
-HLE_FORCE("localtime_r", "本地时刻 → 宿主 localtime_r（跟系统时区）", struct tm *, h_localtime_r, const int64_t *t, struct tm *out) { time_t v = (time_t)*t; return localtime_r(&v, out); }
-HLE_FORCE("mktime", "本地日历 → 绝对秒，宿主 mktime（跟系统时区）", int64_t, h_mktime, struct tm *tm) { return (int64_t)mktime(tm); }
+HLE_FORCE("localtime", "local time → host localtime (follows the system time zone)", struct tm *, h_localtime, const int64_t *t) { time_t v = (time_t)*t; return localtime(&v); }
+HLE_FORCE("localtime_r", "local time → host localtime_r (follows the system time zone)", struct tm *, h_localtime_r, const int64_t *t, struct tm *out) { time_t v = (time_t)*t; return localtime_r(&v, out); }
+HLE_FORCE("mktime", "local calendar → absolute seconds, host mktime (follows the system time zone)", int64_t, h_mktime, struct tm *tm) { return (int64_t)mktime(tm); }

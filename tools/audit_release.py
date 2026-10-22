@@ -4,7 +4,7 @@ import argparse,hashlib,json,re,sys
 from pathlib import Path
 FORBIDDEN_DIRS={'Gen','gen','bin','obj','build','__pycache__','node_modules','RomFS','romfs','ExeFS','save','save.work','Payload'}
 FORBIDDEN_EXT={'.zs','.szs','.bwav','.bars','.bfres','.msbt','.metal','.bin','.metallib','.air','.spv','.nsp','.xci','.nca','.nso','.nro','.data','.keys','.key','.p8','.p12','.pem','.mobileprovision','.ipa','.o','.a','.dylib','.ttf','.otf','.png','.jpg','.jpeg','.webp','.mov','.mp4','.pyc'}
-APP_ICON=Path("dm/ios-acnh/Resources/AppIcon.png")
+APP_ICON=Path("dm/ios/Resources/AppIcon.png")
 APP_ICON_SHA256="2277057516772ef6059f77476cfed5ea0a1743333458c1f0241c331594665cf5"
 MAGICS=(b'NSO0',b'PFS0',b'HFS0',b'ACNHDAT1',b'\xcf\xfa\xed\xfe',b'\xfe\xed\xfa\xcf',b'\x7fELF')
 SECRET=re.compile(r'-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|(?:master_key_[0-9a-f]+|titlekek_[0-9a-f]+|header_key)\s*=\s*[0-9a-fA-F]{32,}|AKIA[0-9A-Z]{16}')

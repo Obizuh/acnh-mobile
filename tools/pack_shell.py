@@ -5,7 +5,6 @@ sys.dont_write_bytecode = True
 import argparse, importlib.util, json, os, plistlib, re, shutil, tempfile, zipfile
 from pathlib import Path, PurePosixPath
 from build_shell import source_id, ROOT
-from check_invariance import check_invariance, check_alpha_test
 
 def extract_shell(archive, dest):
     with zipfile.ZipFile(archive) as z:
@@ -25,12 +24,10 @@ def main():
         ap.add_argument('--'+name,type=Path,required=True)
     a=ap.parse_args(); a.output=a.output.resolve()
     if a.output.exists(): raise ValueError('Output already exists')
-    profile=ROOT/'dm/games/acnh'
+    profile=ROOT/'dm/games/01006F8002326000'
     # Check everything before creating a large temporary install package.
     chain=re.search(r'#define DMSH_CHAIN "([0-9a-f]+)"',(profile/'dmsh_chain.h').read_text()).group(1)
     cache=a.shaders/('b-'+chain)
-    check_invariance(cache)
-    check_alpha_test(cache)
     libs=list(cache.glob('*_b.metallib'))
     if not libs: raise ValueError('Missing prepared iOS shader libraries: '+str(cache))
     for lib in libs:
@@ -39,7 +36,7 @@ def main():
     from fontTools.ttLib import TTFont
     with TTFont(a.font): pass
     for name in ['main','subsdk0','sdk']:
-        for suffix in ['patched.bin','fixups.tsv','gates.tsv','params.tsv','cuts.tsv','obs.tsv']:
+        for suffix in ['patched.bin','fixups.tsv','gates.tsv','cuts.tsv','obs.tsv']:
             if not (a.patched/(name+'.'+suffix)).is_file(): raise ValueError('Missing rewritten module table: '+name+'.'+suffix)
     with tempfile.TemporaryDirectory(prefix='acnh-pack-') as tmp:
         work=Path(tmp); extract_shell(a.shell,work)
@@ -51,9 +48,9 @@ def main():
         spec=importlib.util.spec_from_file_location('guest',ROOT/'dm/tools/guest_dylib.py'); guest=importlib.util.module_from_spec(spec); spec.loader.exec_module(guest)
         guest.write(str(a.patched),str(app/'Frameworks'),metadata['modules'],'org.acnhmobile.experimental.guest')
         for name in metadata['modules']:
-            for suffix in ['fixups.tsv','gates.tsv','params.tsv','cuts.tsv','obs.tsv']:
+            for suffix in ['fixups.tsv','gates.tsv','cuts.tsv','obs.tsv']:
                 shutil.copyfile(a.patched/(name+'.'+suffix),dm/(name+'.'+suffix))
-        for name in ['shader_map.tsv','pso_manifest.tsv','c1_full.tsv']: shutil.copyfile(profile/name,dm/name)
+        for name in ['shader_map.tsv','pso_manifest.tsv','c1_full.tsv','cb_extent.tsv']: shutil.copyfile(profile/name,dm/name)
         target=app/'msl'/('b-'+chain); target.mkdir(parents=True)
         for p in cache.iterdir():
             if p.is_file() and p.suffix in {'.metallib','.json'}: shutil.copyfile(p,target/p.name)
