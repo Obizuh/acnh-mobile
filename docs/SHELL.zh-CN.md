@@ -1,48 +1,24 @@
-# 不含游戏的空壳发布包
+# 无游戏空壳补包
 
-`ACNHMobile-shell-build-input.zip` 只有 iOS 运行框架，不含游戏程序、游戏着色器、资源、密钥或存档，不能直接玩。它使用 ZIP 扩展名防止误当作安装包。
+Release 中的 IPA 和构建输入 ZIP 是相同的无游戏空壳，不能直接游玩，仅导入 `.data` 不够。
 
-仅把扩展名改成 IPA、仅向手机导入 `.data`，都不能补齐游戏程序。完整 IPA 需要用户在电脑上用自己的文件生成，并签名安装。
-
-## 在 GitHub 生成空壳
-
-1. 把本版本源码完整提交到仓库，包括 `.github/workflows/shell-build.yml`。
-2. 打开 **Actions → Build game-free iOS shell → Run workflow**，选择 `main` 后运行。
-3. 完成后在该次运行底部 **Artifacts** 下载 `ACNHMobile-shell-build-input`。解开外层下载 ZIP，里面才是空壳 ZIP、内容检查报告与 SHA256SUMS。
-4. 如需 Releases：给对应源码提交创建 `v` 开头的标签，例如 `v1.0.0`。流程会在检查和构建成功后自动发布同标签的**预发布 Release**，并附上完整空壳、报告和校验文件，不必再手动发布。在 GitHub 页面发布版本也会触发构建。手动运行时填写 `release_tag`（必须是已有标签）同样会自动发布；留空则只生成 Artifact。
-
-流程使用 GitHub 的 `macos-26` 机器，只安装 XcodeGen，不接收游戏文件，不需要 Apple 证书、密钥或其他 Secrets。它不会在 GitHub 上构建含游戏的完整 IPA。
-
-## 用户在自己电脑上生成 IPA
-
-当前准备游戏程序和着色器仍需要 Apple Silicon Mac、Xcode 26+、Metal 工具与 [BUILD.zh-CN.md](BUILD.zh-CN.md) 中的依赖。尚未提供 Windows/Linux 一键准备全部游戏产物的功能。
-
-必须使用与空壳匹配的源码版本。在自己的电脑上准备合法持有的解密 ExeFS、RomFS 和可使用的标准 TTF 字体，然后：
+下载对应版本的源码，使用自己持有并按本版官方核心准备好的 3.0.3 改写程序、完整 iOS 着色器缓存和字体。原构建参数不变；增加 `--shell` 可使用 GitHub 已编译的空壳补包：
 
 ```sh
-python3 -m venv .venv
-. .venv/bin/activate
-python -m pip install -r requirements.txt
-./setup.sh rewrite --exefs /path/to/ExeFS --output /path/to/private/patched
-./setup.sh shaders --exefs /path/to/ExeFS --romfs /path/to/RomFS --output /path/to/private/shaders
-python tools/pack_shell.py \
-  --shell /path/to/ACNHMobile-shell-build-input.zip \
-  --patched /path/to/private/patched \
-  --shaders /path/to/private/shaders/ios \
-  --font /path/to/standard.ttf \
-  --output /path/to/private/ACNHMobile-unsigned.ipa
+./setup.sh build \
+  --shell /path/to/ACNHMobile-iOS26-v0.3.0-build2-shell-unsigned.ipa \
+  --patched /path/to/owned/patched \
+  --romfs /path/to/owned/RomFS \
+  --shaders /path/to/owned/shaders/ios \
+  --font /path/to/owned/font.ttf \
+  --work /path/to/private/work \
+  --output /path/to/private/ACNHMobile.ipa
 ```
 
-最后用侧载工具签名**整个 IPA，包括 Guest.framework**，再安装到 iPhone/iPad。此私人 IPA 已含游戏程序和转换后的着色器，不能作为空壳公开上传。
+需要 Python 和 FontTools。补包时核对源码指纹，生成包含自备程序的 Guest.framework；请对整个 IPA（包括此框架）签名后安装。不传 `--shell` 时仍按原方式在 Mac 上编译完整私人 IPA。
 
-`.data` 资源仍外置，按 [GAME_FILES.zh-CN.md](GAME_FILES.zh-CN.md) 制作后放到 App 的 `Documents/ACNHMobile`，运行时直接读取，不解压。原有完整数据包可继续使用。
+着色器必须与官方核心配套，本版基线目录为 `b-87eb0f1ee74a`，包含完整反射 JSON 和派生变体，不能混用旧版着色器补丁。已有 3.0.3 `.data` 可以继续用；将索引和全部编号分卷放在 `Documents/ACNHMobile`，直接读取、不解压。
 
-## 在 Mac 本地生成公开空壳
+空壳不含游戏程序、游戏资源、转换后的游戏着色器、key、存档和字体；图标保留。补包后的完整 IPA 含用户自备内容，只供私人使用，请勿上传公开。
 
-```sh
-python tools/build_shell.py --work /path/to/new-empty-work --output /path/to/shell-output
-```
-
-无需任何游戏文件。构建器严格检查空壳的文件清单、Bundle ID 和可执行文件，拒绝残留的游戏模块内嵌段。公开源码和空壳可发布；用于核对的私人 IPA、程序、着色器、字体、数据与存档不能发布。
-
-本版本已完成本地 iOS 编译、空壳内容检查和私人组包结构核对；空壳方式尚待手机签名安装和实际游玩验证。GitHub 托管构建需上传源码后查看首次运行结果。
+本机已完成空壳构建、内容审计和自备文件补包验证；手机签名、安装和完整游戏流程仍需用户真机测试。

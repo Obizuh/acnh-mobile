@@ -1,3 +1,4 @@
+#define MIN(a,b) ((a)<(b)?(a):(b))
 #include "../hle_fs.c"
 struct dm_flags g_flag;uint64_t g_t0_ns;module_t g_mod[MAX_MOD];int g_nmod;
 int dm_custom_lang_explicit(void){return -1;}int dm_sys_lang(void){return 10;}
@@ -6,7 +7,7 @@ void dm_prof_add(int a,uint64_t b,uint64_t c){(void)a;(void)b;(void)c;}void dm_g
 static int failures;
 #define CHECK(s,c) do{int ok=!!(c);printf("%s: %s\n",s,ok?"PASS":"FAIL");failures+=!ok;}while(0)
 static void *reader(void *opaque){(void)opaque;for(int i=0;i<200;i++){uint64_t h;size_t got;char b[8];if(h_fs_OpenFile(&h,"content:/Dir/hello",1))return (void*)1;if(h_fs_ReadFile(&got,h,1,b,3)||got!=3||memcmp(b,"ell",3)){h_fs_CloseFile(h);return (void*)1;}h_fs_CloseFile(h);}return NULL;}
-int main(int argc,char**argv){if(argc<2)return 2;setenv("DM_ROMFS",argv[1],1);CHECK("mount .data without a romfs directory",h_fs_MountRom("content",NULL,0)==0);if(failures)return 1;
+int main(int argc,char**argv){if(argc<2)return 2;char why[256];CHECK("deep resource verification",dm_acnh_data_verify(argv[1],1,NULL,why,sizeof why));if(failures){puts(why);return 1;}setenv("DM_ROMFS",argv[1],1);CHECK("mount .data without a romfs directory",h_fs_MountRom("content",NULL,0)==0);if(failures)return 1;
  uint64_t h=0;size_t got=0;int64_t size=0;char b[64]={0};int32_t type=-1;
  if(argc==2){
  CHECK("root is a virtual directory",!h_fs_GetEntryType(&type,"content:/")&&type==ENT_DIR);
@@ -41,3 +42,5 @@ int main(int argc,char**argv){if(argc<2)return 2;setenv("DM_ROMFS",argv[1],1);CH
  }
  printf("failures=%d\n",failures);return !!failures;
 }
+
+int dm_guest_as_contains(uintptr_t address){(void)address;return 0;}

@@ -1,17 +1,31 @@
-# Local build
+# Private local build
 
-Use your own decrypted ACNH 3.0.3 ExeFS (`main`, `subsdk0`, `sdk`) and RomFS. No keys are included or acquired. Install the dependencies in the root README; run `./setup.sh check` first. Public NuGet package restoration may need network access.
+Use an Apple Silicon Mac, Xcode 26 with Metal tools, XcodeGen and Python 3.10+ with FontTools. All game inputs must be your own. Neither the repository nor GitHub Actions obtains game files or keys.
 
 ```sh
-./setup.sh rewrite --exefs /path/to/ExeFS --output /path/to/private-work/patched
-./setup.sh shaders --exefs /path/to/ExeFS --romfs /path/to/RomFS --output /path/to/private-work/shaders
-./setup.sh build --patched /path/to/private-work/patched --romfs /path/to/RomFS \
-  --shaders /path/to/private-work/shaders/ios --font /path/to/your-standard-font.ttf \
-  --work /path/to/private-work/app --output /path/to/private-work/ACNHMobile.ipa
+python3 -m venv .venv
+. .venv/bin/activate
+python -m pip install -r requirements.txt
+./setup.sh check
+./setup.sh build \
+  --patched /path/to/owned/patched \
+  --romfs /path/to/owned/RomFS \
+  --shaders /path/to/owned/shaders/ios \
+  --font /path/to/owned/font.ttf \
+  --work /path/to/private/work \
+  --output /path/to/private/ACNHMobile.ipa
 ```
 
-The shader step rebuilds the public translator source, refreshes local tool fingerprints and the shader chain, and applies the position-invariance and map alpha-test fixes. Never mix chain versions. Supply your own standard font.
+`--patched` contains official rewritten `main`, `subsdk0`, `sdk` images and their fixups/gates/cuts/obs tables. Supported 3.0.3 build IDs are recorded in `dm/games/01006F8002326000/game.tsv`. Use rewritten inputs matching this official source, not outputs from older project releases.
 
-RomFS stays external, but the private IPA still embeds original game modules and translated shaders. It is not a content-free shell and must not be included in a source release. All generated files belong outside the public archive. Sign/install locally using your own method.
+`--shaders` is the parent of the complete matching `b-<chain>` cache, including reflection JSON and shadow-input variants. This baseline uses `b-87eb0f1ee74a`. Do not mix old project shader patches, chain metadata or translation binaries with the official runtime. For fresh extraction/rewriting/translation, follow the official source procedure in the upstream [README](https://github.com/seedds/nxnative/tree/e72a06510e6dfff4a77c49fd205a82e21cad0786); per-game tools are retained under `dm/`. Translating with a different toolchain requires regenerating the chain header, Mac/iOS shaders, c1/constant-buffer tables together and rebuilding the runtime. The checked-in chain lock is provenance, not a redistributable translator binary.
 
-See [the detailed Chinese build guide](BUILD.zh-CN.md), [game-data preparation](GAME_FILES.md), and the release audit tool `python3 tools/audit_release.py .`.
+RomFS is checked as a local input but stays external. Existing 3.0.3 `.data` files work. To create a new pack:
+
+```sh
+./setup.sh data --romfs /path/to/owned/RomFS --output /path/to/private/data
+```
+
+Copy all `.data` files, including `ACNH-index.data`, to `Documents/ACNHMobile`. No extraction occurs on the phone. The JSON manifest generated alongside the pack is a tooling record; the phone reads the `.data` index.
+
+The full IPA is private and contains game-derived modules and shaders. Do not publish it. Sign it yourself; this project does not sign or install on devices.

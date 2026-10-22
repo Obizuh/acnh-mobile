@@ -2,112 +2,71 @@ name: Build game-free iOS shell
 on:
   workflow_dispatch:
     inputs:
-      release_tag:
-        description: 'Existing v* tag to build and publish; leave both tag fields empty for artifact only'
-        required: false
-        type: string
-      new_release_tag:
-        description: 'New v* tag to create and publish from the selected branch'
-        required: false
-        type: string
-      replace_release:
-        description: 'Replace existing release tag and assets with the selected branch after a successful build'
-        required: false
-        default: false
+      publish:
+        description: Publish a new release after the build and audits pass
         type: boolean
-      release_notes:
-        description: 'Optional notes describing fixes in this release'
-        required: false
-        type: string
+        default: false
   push:
     tags: ['v*']
-  release:
-    types: [published]
 permissions:
   contents: read
 concurrency:
-  group: shell-release-${{ inputs.new_release_tag || inputs.release_tag || github.ref }}
+  group: official-shell-${{ github.ref }}
   cancel-in-progress: false
 jobs:
   shell:
     runs-on: macos-26
     timeout-minutes: 45
+    permissions:
+      contents: write
     steps:
-      - name: Validate release tag
-        env:
-          RELEASE_TAG: ${{ inputs.new_release_tag || inputs.release_tag || github.event.release.tag_name || github.ref_name }}
-          NEW_RELEASE_TAG: ${{ inputs.new_release_tag }}
-          EXISTING_RELEASE_TAG: ${{ inputs.release_tag }}
-          PUBLISH: ${{ startsWith(github.ref, 'refs/tags/') || github.event_name == 'release' || inputs.release_tag != '' || inputs.new_release_tag != '' }}
-        run: |
-          python3 - <<'PYTHON'
-          import os,re,subprocess
-          if os.environ['PUBLISH']=='true' and not re.fullmatch(r'v[0-9][0-9A-Za-z._-]{0,100}',os.environ['RELEASE_TAG']):
-              raise SystemExit('Release tags must start with v and a number, and contain only letters, digits, dots, hyphens or underscores.')
-          if os.environ['NEW_RELEASE_TAG']:
-              if os.environ['EXISTING_RELEASE_TAG']:
-                  raise SystemExit('Choose either release_tag or new_release_tag, not both.')
-              remote=subprocess.check_output(['git','ls-remote','--tags','https://github.com/'+os.environ['GITHUB_REPOSITORY']+'.git','refs/tags/'+os.environ['NEW_RELEASE_TAG']],text=True)
-              if remote.strip():
-                  raise SystemExit('The new tag already exists; use release_tag instead.')
-          PYTHON
       - uses: actions/checkout@v4
-        with:
-          ref: ${{ inputs.release_tag && !inputs.replace_release && format('refs/tags/{0}', inputs.release_tag) || github.ref }}
-      - name: Check release and app version agree
-        env:
-          RELEASE_TAG: ${{ inputs.new_release_tag || inputs.release_tag || github.event.release.tag_name || github.ref_name }}
-          PUBLISH: ${{ startsWith(github.ref, 'refs/tags/') || github.event_name == 'release' || inputs.release_tag != '' || inputs.new_release_tag != '' }}
-        run: |
-          python3 - <<'PYTHON'
-          import json,os
-          version=json.load(open('config/version.json'))
-          if os.environ['PUBLISH']=='true' and os.environ['RELEASE_TAG']!='v'+version['version']:
-              raise SystemExit('Update config/version.json to match the release tag before publishing.')
-          PYTHON
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Audit public sources
-        run: python tools/audit_release.py .
-      - name: Test shell packaging
-        run: python tools/test_shell.py
+      - name: Validate version and publication target
+        env:
+          SHOULD_PUBLISH: ${{ github.ref_type == 'tag' || inputs.publish }}
+        run: |
+          python3 - <<'PY'
+          import json,os,re
+          v=json.load(open('config/version.json'))
+          assert re.fullmatch(r'[0-9]+(?:\.[0-9]+){2}',v['version'])
+          tag='v'+v['version']
+          if os.environ['GITHUB_REF_TYPE']=='tag':assert os.environ['GITHUB_REF_NAME']==tag
+          elif os.environ['SHOULD_PUBLISH']=='true':assert os.environ['GITHUB_REF_NAME']=='main','Publish from main only'
+          with open(os.environ['GITHUB_ENV'],'a') as f:
+              f.write('RELEASE_TAG='+tag+'\nAPP_VERSION='+v['version']+'\nAPP_BUILD='+str(v['build'])+'\n')
+          PY
+      - name: Audit source and test packaging
+        run: |
+          python tools/audit_release.py .
+          python tools/test_shell.py
       - name: Install project generator
         run: brew install xcodegen
-      - name: Build shell without game files or signing secrets
-        run: python tools/build_shell.py --work "$RUNNER_TEMP/acnh-shell" --output "$RUNNER_TEMP/shell-output"
+      - name: Build official Metal 4 shell without game files
+        run: python tools/build_shell.py --work "$RUNNER_TEMP/shell-work" --output "$RUNNER_TEMP/shell-output"
+      - name: Verify exact IPA contents, metadata and Metal 4 build
+        run: python tools/verify_shell.py "$RUNNER_TEMP/shell-output"
       - uses: actions/upload-artifact@v4
         with:
-          name: ACNHMobile-shell-build-input
+          name: ACNHMobile-iOS26-v${{ env.APP_VERSION }}-build${{ env.APP_BUILD }}-shell
           path: ${{ runner.temp }}/shell-output/*
           if-no-files-found: error
-      - name: Publish release with complete shell assets
-        if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'release' || inputs.release_tag != '' || inputs.new_release_tag != ''
+      - name: Publish verified shell from main
+        if: github.ref_type == 'tag' || inputs.publish
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_NOTES: ${{ inputs.release_notes }}
-          REPLACE_RELEASE: ${{ inputs.replace_release }}
-          NEW_RELEASE_TAG: ${{ inputs.new_release_tag }}
-          RELEASE_TAG: ${{ inputs.new_release_tag || inputs.release_tag || github.event.release.tag_name || github.ref_name }}
         run: |
           set -euo pipefail
-          test -s "$RUNNER_TEMP/shell-output/ACNHMobile-shell-build-input.zip"
-          test -s "$RUNNER_TEMP/shell-output/shell-audit.json"
-          test -s "$RUNNER_TEMP/shell-output/SHA256SUMS.txt"
-          if [ -z "$NEW_RELEASE_TAG" ] && gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
-            if [ "$REPLACE_RELEASE" = true ]; then
-              gh api --method PATCH "repos/$GITHUB_REPOSITORY/git/refs/tags/$RELEASE_TAG" -f sha="$(git rev-parse HEAD)" -F force=true
-            fi
-            gh release upload "$RELEASE_TAG" "$RUNNER_TEMP"/shell-output/* --clobber
-            if [ -n "$RELEASE_NOTES" ]; then
-              printf '%s\n' "$RELEASE_NOTES" > "$RUNNER_TEMP/replacement-notes.md"
-              gh release edit "$RELEASE_TAG" --notes-file "$RUNNER_TEMP/replacement-notes.md"
-            fi
-            gh release edit "$RELEASE_TAG" --draft=false
-          else
-            printf '%s\n' '## 无游戏空壳 / Game-free shell' '' '仅包含运行框架，不能直接安装游玩。不含游戏程序、游戏资源、转换后的游戏着色器、key 或存档。' '' '使用者须用自己的文件生成完整 IPA，再签名安装。资源 .data 保持外置、直接读取。' '' 'This archive is build input, not a playable IPA. Bring your own game files. Phone signing and gameplay validation of the shell path remain pending.' '' '说明 / Guide: docs/SHELL.zh-CN.md and docs/SHELL.md in the matching source tag.' > "$RUNNER_TEMP/release-notes.md"
-            if [ -n "$RELEASE_NOTES" ]; then printf '\n%s\n' "$RELEASE_NOTES" >> "$RUNNER_TEMP/release-notes.md"; fi
-            gh release create "$RELEASE_TAG" "$RUNNER_TEMP"/shell-output/* --target "$(git rev-parse HEAD)" --prerelease --title "ACNH Mobile $RELEASE_TAG · 无游戏空壳" --notes-file "$RUNNER_TEMP/release-notes.md"
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            echo 'Release exists; refusing to overwrite.' >&2
+            exit 1
           fi
-    permissions:
-      contents: write
+          gh release create "$RELEASE_TAG" "$RUNNER_TEMP"/shell-output/* \
+            --target "$(git rev-parse HEAD)" --draft \
+            --title "ACNH Mobile $RELEASE_TAG · 官方 Metal 4 空壳" \
+            --notes-file "docs/RELEASE-$RELEASE_TAG.zh-CN.md"
+          gh release download "$RELEASE_TAG" --dir "$RUNNER_TEMP/remote-shell"
+          python tools/verify_shell.py "$RUNNER_TEMP/remote-shell"
+          gh release edit "$RELEASE_TAG" --draft=false --latest

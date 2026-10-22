@@ -1,6 +1,6 @@
 #import <Foundation/Foundation.h>
 #include <assert.h>
-#include "../../ios-acnh/Sources/PhotoExportCleanup.h"
+#include "../../ios/Sources/PhotoExportCleanup.h"
 int main(void){@autoreleasepool{
  NSFileManager *fm=NSFileManager.defaultManager;
  NSURL *root=[NSURL fileURLWithPath:[NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString]];

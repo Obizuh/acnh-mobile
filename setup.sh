@@ -1,4 +1,4 @@
-#!/bin/sh
-set -eu
-HERE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-exec "${PYTHON:-python3}" "$HERE/tools/public_setup.py" "$@"
+#!/bin/bash
+set -euo pipefail
+cd "$(dirname "$0")"
+exec "${ACNH_PYTHON:-python3}" tools/public_setup.py "$@"

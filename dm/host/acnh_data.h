@@ -11,3 +11,5 @@ ssize_t dm_acnh_data_pread(int fd,void *buf,size_t n,off_t offset,int *handled);
 void dm_acnh_data_close(int fd);
 typedef int (*dm_acnh_data_emit)(void *,const char *,int,int64_t);
 int dm_acnh_data_list(const char *path,dm_acnh_data_emit emit,void *opaque);
+
+int dm_acnh_data_verify(const char *root,int deep,void (*progress)(double),char *why,size_t cap);

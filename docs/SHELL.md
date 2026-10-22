@@ -1,19 +1,20 @@
-# Game-free iOS shell
+# Game-free shell assembly
 
-`ACNHMobile-shell-build-input.zip` contains only the compatibility runtime. No game executable, translated game shaders, assets, keys, saves or fonts are included. It is not directly playable or installable. Renaming it to IPA or importing `.data` alone does not supply the missing program.
+The release IPA and shell-build-input ZIP contain the same game-free runtime. Neither is playable by itself. Importing external `.data` cannot supply the missing executable or shader cache.
 
-In GitHub Actions, run **Build game-free iOS shell** on `main`. Download its artifact and unpack the outer ZIP. The inner shell ZIP, audit and checksums are the release assets. Pushing a `v*` tag automatically publishes a **pre-release** with the complete assets after checks pass. Publishing a release through GitHub also triggers the build. For a manual run, enter an existing tag in `release_tag` to publish it automatically; leave it empty for an artifact only. No game inputs, Apple certificates or signing secrets are needed by CI.
-
-To prepare a private installable IPA, use the matching source release on an Apple Silicon Mac. Install the dependencies in [BUILD.md](BUILD.md), then run `setup.sh rewrite` and `setup.sh shaders` against your own decrypted files. Run:
+Use source from the exact release, Python with FontTools, and your own official rewritten 3.0.3 modules, complete matching iOS shader cache and font:
 
 ```sh
-python tools/pack_shell.py --shell /path/to/ACNHMobile-shell-build-input.zip \
-  --patched /path/to/private/patched --shaders /path/to/private/shaders/ios \
-  --font /path/to/standard.ttf --output /path/to/private/ACNHMobile-unsigned.ipa
+./setup.sh build \
+  --shell /path/to/ACNHMobile-iOS26-v0.3.0-build2-shell-unsigned.ipa \
+  --patched /path/to/owned/patched \
+  --romfs /path/to/owned/RomFS \
+  --shaders /path/to/owned/shaders/ios \
+  --font /path/to/owned/font.ttf \
+  --work /path/to/private/work \
+  --output /path/to/private/ACNHMobile.ipa
 ```
 
-Sign the whole IPA, including Guest.framework, before installing. This resulting private IPA contains game-derived code/shaders and must not be published as a shell. Resource `.data` files remain external in `Documents/ACNHMobile` and are read without extraction. Full preparation on Windows/Linux is not currently provided.
+`--shell` is optional. Omit it to compile an embedded private IPA using Xcode, preserving the existing user build interface. With it, the source fingerprint is checked and owned executable images are packed into Guest.framework; no Xcode compilation is required at assembly time. Sign the entire output, including Guest.framework. Matching `.data` remains external and directly read. Never upload the assembled IPA.
 
-To build the public shell locally without game inputs: `python tools/build_shell.py --work /path/to/new-work --output /path/to/shell-output`.
-
-Local iOS compilation and package structure/content checks passed. This shell path still needs phone signing and gameplay verification. The hosted workflow needs its first run after the source is uploaded.
+The release shell has no program images, shaders, game resources, keys, saves or font. The application icon is retained. The build-input ZIP is also supplied for existing tooling. See BUILD.md for official shader chain requirements and device validation limits.

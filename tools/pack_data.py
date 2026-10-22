@@ -25,5 +25,5 @@ finally:
 for row in parts:os.replace(a.output/(row['name']+'.partial'),a.output/row['name'])
 manifest=a.output/'acnh-pack.json';manifest.write_text(json.dumps({'format':'acnh-transfer-v1','parts':parts,'files':files}))
 import subprocess,sys
-root=Path(__file__).resolve().parents[1];subprocess.run([sys.executable,str(root/'dm/games/acnh/tools/build_data_index.py'),str(manifest),str(a.output/'ACNH-index.data')],check=True)
+root=Path(__file__).resolve().parents[1];subprocess.run([sys.executable,str(root/'tools/build_data_index.py'),str(manifest),str(a.output/'ACNH-index.data')],check=True)
 print('Local pack ready:',a.output)

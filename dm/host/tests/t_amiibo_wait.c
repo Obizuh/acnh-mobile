@@ -1,6 +1,6 @@
 #include <assert.h>
 #include <stdio.h>
-#include "../../ios-acnh/Sources/AmiiboImportWait.h"
+#include "../../ios/Sources/AmiiboImportWait.h"
 static unsigned mask;
 static int calls,gfxcalls;static unsigned gfxmask;
 void dm_gfx_suspend_for(int reason,int on){assert(reason==3);gfxcalls++;if(on)gfxmask|=1u<<reason;else gfxmask&=~(1u<<reason);}
