@@ -52,6 +52,8 @@ def ensure(raw=False,plan=False):
     if packages:
         venv=ROOT/'.venv';python=venv/'bin/python'
         if not python.exists():call([sys.executable,'-m','venv',venv])
+        elif subprocess.check_output([python,'-c','import sys; print(sys.version_info >= (3,12))'],text=True).strip()!='True':
+            call([sys.executable,'-m','venv','--upgrade',venv])
         print('自动安装 Python 构建依赖：'+', '.join(packages),flush=True)
         call([python,'-m','pip','install','-r',ROOT/'requirements.txt',*(['backports.zstd'] if sys.version_info<(3,14) else [])])
         # Keep the private interpreter setting from causing a re-exec loop.
