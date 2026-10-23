@@ -70,7 +70,8 @@ workflows:
           build_dependencies.ensure(raw=True)
           from prepare_game import prepare
           def run(command, log):
-              with subprocess.Popen([str(x) for x in command], cwd=ROOT, env=dict(os.environ, PYTHONDONTWRITEBYTECODE='1'), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1) as proc:
+              with subprocess.Popen([str(x) for x in command], cwd=ROOT, env=dict(os.environ, PYTHONDONTWRITEBYTECODE='1'), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, 
+                  bufsize=1) as proc:
                   for line in proc.stdout:
                       print(line, end='', flush=True); log.write(line); log.flush()
                   if proc.wait(): raise RuntimeError('subcommand failed: ' + ' '.join(map(str, command)))
@@ -88,9 +89,9 @@ workflows:
           print('shell built:', shell_ipa, flush=True)
           out = Path(os.environ['CM_BUILD_DIR']) / 'ACNHMobile-unsigned.ipa'
           cmd = [sys.executable, str(build_root / 'tools' / 'public_setup.py'), 'build',
-                 '--patched', str(data['patched']), '--romfs', str(data['romfs']), '--shaders', str(data['shaders']),
-                 '--font', str(home / 'acnh' / 'font.ttf'), '--work', str(work / 'ipa-work'), '--output', str(out),
-                 '--shell', str(shell_ipa)]
+              '--patched', str(data['patched']), '--romfs', str(data['romfs']), '--shaders', str(data['shaders']),
+              '--font', str(home / 'acnh' / 'font.ttf'), '--work', str(work / 'ipa-work'), '--output', str(out),
+              '--shell', str(shell_ipa)]
           subprocess.run(cmd, check=True, cwd=ROOT)
           want = '/msl/b-' + chain + '/'
           with zipfile.ZipFile(out) as z:
