@@ -46,3 +46,6 @@ ExeFS/
 *.szs
 *.bwav
 *.bfres
+
+# Private local launcher paths and settings.
+*.local.json

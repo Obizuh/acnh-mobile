@@ -41,7 +41,7 @@ def main():
     if a.work.exists(): raise ValueError('Choose a new empty work path')
     if a.output.exists() and any(a.output.iterdir()): raise ValueError('Choose an empty output directory; stale release assets are not allowed')
     a.work.mkdir(parents=True)
-    tree=a.work/'tree'; shutil.copytree(ROOT,tree,ignore=shutil.ignore_patterns('.git','.venv','local','outputs','__pycache__','Gen','gen','bin','obj','build','*.xcodeproj','*.xcworkspace','*.dSYM'))
+    tree=a.work/'tree'; shutil.copytree(ROOT,tree,ignore=shutil.ignore_patterns('.git','.venv','local','outputs','__pycache__','Gen','gen','bin','obj','build','*.xcodeproj','*.xcworkspace','*.dSYM','*.local.json'))
     ios=tree/'dm/ios'; gen=ios/'Gen'; (gen/'dm').mkdir(parents=True); (gen/'msl').mkdir()
     e=dict(os.environ,GAME='01006F8002326000',DM_BUNDLE_ID='org.acnhmobile.experimental',DM_DISPLAY_NAME='ACNH Mobile',DM_TEAM_ID='0000000000',DM_APP_CATEGORY='public.app-category.games')
     version=json.loads((ROOT/'config/version.json').read_text())

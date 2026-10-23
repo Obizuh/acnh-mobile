@@ -39,3 +39,7 @@ The private embedded build and game-free shell compile in Release. The shell has
 Actions → **Build game-free iOS shell** → Run workflow on `main`. Leave **publish** off for artifacts only; enable it to create the release matching `config/version.json` after successful build and audits. A `v*` tag also builds and publishes. Existing releases are never overwritten. This edition publishes one iOS 26 shell; historical releases and compatibility branches remain available.
 
 Credits and licenses: [NXNative](https://github.com/seedds/nxnative), [D2R Mobile](https://github.com/jhaizhou-ops/d2r-mobile), [LICENSE](LICENSE), [third-party notices](THIRD_PARTY_NOTICES.md). Not affiliated with Nintendo.
+
+## Local launchers
+
+Three root `.command` launchers build a private IPA, a private IPA plus external data, or a game-free shell. Choose your own game folder and prod.keys to extract, rewrite and translate official Metal shaders, with automatic dependency installation; existing prepared inputs can also be reused; see [local launcher guide](docs/ONE-CLICK.zh-CN.md).
