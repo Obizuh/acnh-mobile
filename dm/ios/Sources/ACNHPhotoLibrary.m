@@ -4,6 +4,8 @@
 #include <dlfcn.h>
 #include "dm.h"
 #include "PhotoExportCleanup.h"
+#include "PhotoHostPurpose.h"
+#import <objc/message.h>
 
 // All state stays on the main queue. Keep file URLs, never full-resolution images.
 static NSMutableArray<NSURL *> *pendingPhotos;
@@ -22,19 +24,36 @@ static void photoNotice(NSString *text) {
 }
 static BOOL photoHostHasPurpose(void) {
     // LiveContainer can replace mainBundle. TCC checks the actual signed host.
-    CFTypeRef (*create)(CFAllocatorRef)=dlsym(RTLD_DEFAULT,"SecTaskCreateFromSelf");
-    CFStringRef (*signingID)(CFTypeRef,CFErrorRef *)=dlsym(RTLD_DEFAULT,"SecTaskCopySigningIdentifier");
-    if(!create || !signingID)return NO;
-    CFTypeRef task=create(kCFAllocatorDefault);if(!task)return NO;
+    static void *security;static dispatch_once_t once;
+    dispatch_once(&once,^{security=dlopen("/System/Library/Frameworks/Security.framework/Security",RTLD_NOW|RTLD_LOCAL);});
+    if(!security){LOG("[photo-library] Security framework unavailable");return NO;}
+    CFTypeRef (*create)(CFAllocatorRef)=dlsym(security,"SecTaskCreateFromSelf");
+    CFStringRef (*signingID)(CFTypeRef,CFErrorRef *)=dlsym(security,"SecTaskCopySigningIdentifier");
+    if(!create || !signingID){LOG("[photo-library] host signature API unavailable");return NO;}
+    CFTypeRef task=create(kCFAllocatorDefault);if(!task){LOG("[photo-library] host signature task unavailable");return NO;}
     NSString *identifier=CFBridgingRelease(signingID(task,NULL));CFRelease(task);
-    NSBundle *host=identifier.length?[NSBundle bundleWithIdentifier:identifier]:nil;
-    if(!host && [NSBundle.mainBundle.bundleIdentifier isEqualToString:identifier])host=NSBundle.mainBundle;
-    id purpose=[host objectForInfoDictionaryKey:@"NSPhotoLibraryAddUsageDescription"];
-    return [purpose isKindOfClass:NSString.class] && [purpose length]>0;
+    NSMutableArray<NSBundle *> *candidates=[NSMutableArray array];
+    // LiveContainer retains its original bundle here before substituting mainBundle.
+    SEL selector=NSSelectorFromString(@"lcMainBundle");
+    if([NSUserDefaults respondsToSelector:selector]){
+        id retained=((id(*)(id,SEL))objc_msgSend)(NSUserDefaults.class,selector);
+        if([retained isKindOfClass:NSBundle.class])[candidates addObject:retained];
+    }
+    NSBundle *registered=identifier.length?[NSBundle bundleWithIdentifier:identifier]:nil;
+    if(registered)[candidates addObject:registered];
+    [candidates addObject:NSBundle.mainBundle];
+    for(NSBundle *candidate in candidates){
+        if(photo_host_purpose(candidate.bundlePath,identifier)){
+            LOG("[photo-library] verified host purpose from retained/registered bundle");return YES;
+        }
+    }
+    LOG("[photo-library] host signature identified=%d verified purpose missing",identifier.length>0);
+    return NO;
 }
 static void drainPhotos(void) {
     if(exportingPhoto || requestingPhotoPermission || !pendingPhotos.count)return;
     PHAuthorizationStatus status=[PHPhotoLibrary authorizationStatusForAccessLevel:PHAccessLevelAddOnly];
+    LOG("[photo-library] add authorization status=%ld",(long)status);
     if(status==PHAuthorizationStatusNotDetermined) {
         requestingPhotoPermission=YES;
         [PHPhotoLibrary requestAuthorizationForAccessLevel:PHAccessLevelAddOnly handler:^(PHAuthorizationStatus result){
