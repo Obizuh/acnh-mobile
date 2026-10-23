@@ -3,6 +3,8 @@
 #import <GameController/GameController.h>
 #import <CoreText/CoreText.h>
 #include <pthread.h>
+#include <stdlib.h>
+#include <string.h>
 #include "dm_input.h"
 #include "front.h"
 #include "AcnhTouchLogic.h"
@@ -300,8 +302,22 @@ static void read_pad(GCExtendedGamepad *g) {
 }
 @end
 
-UIView *dm_gamepad_view(CGRect frame) { DmGamepad *v = [[DmGamepad alloc] initWithFrame:frame]; g_view = v; return v; }
-void dm_gamepad_reset(void) {   // On resign active: release everything (a key held while switching away and released in background gets no "release")
+static UIView *acnh_gamepad_view(CGRect frame) { DmGamepad *v = [[DmGamepad alloc] initWithFrame:frame]; g_view = v; return v; }
+static void acnh_gamepad_reset(void) {   // On resign active: release everything (a key held while switching away and released in background gets no "release")
     dispatch_async(dispatch_get_main_queue(), ^{ [g_view reset]; });
     pthread_mutex_lock(&g_mu); g_pad_btn = 0; g_pad_lx = g_pad_ly = g_pad_rx = g_pad_ry = 0; pthread_mutex_unlock(&g_mu); publish();
+}
+
+// Select once, after the launcher applies its persisted settings. Only the active
+// implementation registers controller observers and publishes input state.
+extern UIView *dm_generic_gamepad_view(CGRect frame);
+extern void dm_generic_gamepad_reset(void);
+static BOOL g_generic_layout;
+UIView *dm_gamepad_view(CGRect frame) {
+    const char *layout = getenv("ACNH_CONTROLLER_LAYOUT");
+    g_generic_layout = layout && strcmp(layout, "generic") == 0;
+    return g_generic_layout ? dm_generic_gamepad_view(frame) : acnh_gamepad_view(frame);
+}
+void dm_gamepad_reset(void) {
+    if (g_generic_layout) dm_generic_gamepad_reset(); else acnh_gamepad_reset();
 }

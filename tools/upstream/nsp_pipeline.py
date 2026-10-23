@@ -367,7 +367,7 @@ def tool_files(repo):   # what the shader stages run: dm/gfx/tools' scripts and 
 
 
 def chain_files(repo):   # what the iOS shaders run: dmsh_build.py and every repository module it imports, at any depth (dmsh_*.py, ios_metal.py, game.py), and the translator's lock; not the split's readers (shader_split.py, unityfs.py, uepak.py)
-    dirs, todo, seen = [repo / d for d in ('dm/gfx/tools', 'dm/ios/tools', 'dm/games')], [repo / 'dm/gfx/tools/dmsh_build.py'], set()
+    dirs, todo, seen = [repo / d for d in ('dm/gfx/tools', 'dm/ios/tools', 'dm/games')], [repo / 'dm/gfx/tools/dmsh_build.py', repo / 'dm/gfx/tools/own_compilers.py'], set()
     while todo:
         p = todo.pop()
         if p in seen or not p.is_file(): continue
@@ -557,7 +557,7 @@ def build_shaders(py, repo, sh, xlate, env, logs, g, provisional=False, pkg_key=
     rmtree(kf)
     try: PROG.watch(ShaderWatch(g, ios, Path(env['WORK'])))
     except Exception: pass   # progress never stops the build (a missing table is dmsh_build.py's to report)
-    run([py, repo / 'dm/gfx/tools/dmsh_build.py', sh / 'pkg', sh / 'cache'], log, env=dict(env, XLATE=str(xlate), IOSOUT=str(ios)))
+    run([py, repo / 'dm/gfx/tools/own_compilers.py', sh / 'pkg', sh / 'cache'], log, env=dict(env, XLATE=str(xlate), IOSOUT=str(ios)))
     PROG.watch(None)
     if provisional:
         PROG.set(step='c1 guard')
@@ -568,6 +568,7 @@ def build_shaders(py, repo, sh, xlate, env, logs, g, provisional=False, pkg_key=
     if n == 0: raise BuildError(f'no iOS shader libraries in {libs}')
     say(f'{n} iOS shader libraries ({libs})')
     t = log.read_text(errors='replace')
+    if own := re.search(r"^note: (built with this Mac's compilers.*)$", t, re.M): say(own.group(1))
     m, c = re.search(r'shaders (\d+): ok (\d+)', t), re.search(r'shader cache: hit (\d+)', t)
     note = ''
     if m:

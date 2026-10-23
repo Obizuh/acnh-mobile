@@ -1272,7 +1272,7 @@ void mtl_drain(void) { present_drop_for_suspend(); mtl_present_flush(); mtl_init
 
 // ================= Render replay =================
 #include "../../host/front.h"
-static int g_red_once[109];
+static int g_red_once[110];
 #define RED_ONCE(k, ...) do { if (!g_red_once[k]++) MLOG("[RED] " __VA_ARGS__); } while (0)
 // NVN vertex streams 0–15 → Metal vertex buffer slots: 0–13 go to 16–29 (30 is the constant fallback buffer), 14 and 15 to 14 and 15. Metal has only the 31 slots 0–30; translated shaders use only buffer(0) (the argument buffer),
 // and the host's own vertex functions read no vertex buffers. 13 Sentinels uses stream 15, and the old 16 + stream went out of range (Metal assertion: buffer index (31) must be < 31)
@@ -3279,11 +3279,20 @@ static id<MTLTexture> tex_by_id(int tid) {   // Caller holds g_rmu
     id<MTLTexture> base = tex_mtl(&rp->t);
     if (!base) return nil;
     v = base;
-    // Channel swizzle: the view's if set, otherwise the one from texture building; identity builds no view (SMBW's font cache is (1 1 1 R): without the swizzle glyphs become white blocks)
-    uint8_t sw[4] = {MTLTextureSwizzleRed, MTLTextureSwizzleGreen, MTLTextureSwizzleBlue, MTLTextureSwizzleAlpha}; int need_sw = 0;
+    // Channel swizzle: the view's if set, otherwise the one from texture building; identity builds no view (SMBW's font cache is (1 1 1 R): without the swizzle glyphs become white blocks).
+    // Its channels name components of the NVN format, which the format's own mapping finds in Metal's (nvn_fmt_to_mtl: alpha 1 for RGBX and the like, red and blue swapped for the RGB565 family),
+    // the view format's if Metal has it, else the texture's (GitHub PR #66: The Legend of Zelda: Echoes of Wisdom's hearts are an RGB565 mask, drawn as red rectangles without the swap).
+    // The swap is for bits in the guest's order, so only for textures uploaded from guest memory or read from it in place: what Metal rendered or cleared into one has red where Metal puts it
+    uint8_t sw[4] = {MTLTextureSwizzleRed, MTLTextureSwizzleGreen, MTLTextureSwizzleBlue, MTLTextureSwizzleAlpha}, fsw[4]; int need_sw = 0; uint32_t fpf = 0;
+    if (!(r.has_v && r.v.set_format && nvn_fmt_to_mtl(r.v.format, &fpf, fsw) && fpf)) nvn_fmt_to_mtl(r.t.d.format, NULL, fsw);
+    if (fsw[0] != MTLTextureSwizzleRed && !base.buffer && ![tex_get(r.t.serial) isKindOfClass:[NvPkg class]]) { fsw[0] = MTLTextureSwizzleRed; fsw[2] = MTLTextureSwizzleBlue; }
     if (r.has_v && r.v.set_swizzle) memcpy(sw, r.v.swz, 4);
     else if (r.t.set_swz) for (int c = 0; c < 4; c++) sw[c] = (uint8_t)(r.t.swz >> (3 * c) & 7);
-    for (int c = 0; c < 4; c++) { if (sw[c] > MTLTextureSwizzleAlpha) sw[c] = (uint8_t)(MTLTextureSwizzleRed + c); if (sw[c] != MTLTextureSwizzleRed + c) need_sw = 1; }
+    for (int c = 0; c < 4; c++) {
+        if (sw[c] > MTLTextureSwizzleAlpha) sw[c] = (uint8_t)(MTLTextureSwizzleRed + c);
+        if (sw[c] >= MTLTextureSwizzleRed) sw[c] = fsw[sw[c] - MTLTextureSwizzleRed];
+        if (sw[c] != MTLTextureSwizzleRed + c) need_sw = 1;
+    }
     // Stencil mode (nvnTextureViewSetDepthStencilMode STENCIL): the view reads the stencil of a depth-stencil texture, through Metal's stencil-only format. The shader declares a float texture and
     // takes the raw bits (the translator has no integer texture type): a read of the integer view gives the stencil value in those bits. Pokémon Legends: Z-A's deferred lighting tests stencil bit 6
     // this way and discards; reading depth instead, the bit followed the depth value and the whole lit picture was striped
@@ -3306,6 +3315,10 @@ static id<MTLTexture> tex_by_id(int tid) {   // Caller holds g_rmu
             sg = g_ser_gen;
         }
         NSUInteger l0 = r.v.set_levels ? r.v.base_level : 0, nl = r.v.set_levels && r.v.nlevels ? r.v.nlevels : base.mipmapLevelCount - l0;
+        if (l0 >= base.mipmapLevelCount) { RED_ONCE(109, "texture view id %d starts at mip %lu beyond %lu levels", tid, (unsigned long)l0, (unsigned long)base.mipmapLevelCount); return nil; }
+        // A level count past the texture's levels is cut to those it has, as deko3d's Tegra descriptor writer clips the maximum level (Echoes of Wisdom: levels 1 + 7 of a seven-level texture,
+        // which Metal's validation refuses)
+        if (nl > base.mipmapLevelCount - l0) nl = base.mipmapLevelCount - l0;
         NSUInteger s0 = r.v.set_layers ? r.v.min_layer : 0;
         NSUInteger ns = base.textureType == MTLTextureType3D ? 1 : (r.v.set_layers && r.v.nlayers ? r.v.nlayers : base.arrayLength * (base.textureType == MTLTextureTypeCube || base.textureType == MTLTextureTypeCubeArray ? 6 : 1) - s0);
         MTLTextureType tt = r.v.set_target ? ttype(r.v.target, base.textureType) : base.textureType;
@@ -3429,14 +3442,16 @@ static void img_fit_upgrade(void) {
     g_imfit_npend = 0;
     pthread_mutex_unlock(&g_rmu);
 }
+// The same view, in the texture's own class, for a swizzled view (the channel mapping of tex_by_id): Metal gives a swizzled view only the read usage (a base of usage 0x7, a view of 0x1),
+// so an RGBX8 or RGB565 image was bound as the dummy and its writes were lost. An image takes no channel mapping, as a Vulkan storage image view must have the identity swizzle
 static id<MTLTexture> img_fit(int tid, id<MTLTexture> t, int dpf, uint64_t *rid) {
-    size_t n = mtl_pf_bytes(t.pixelFormat); int u = dpf == NVN_DPF_UINT;
-    MTLPixelFormat pf = n == 1 ? (u ? MTLPixelFormatR8Uint : MTLPixelFormatR8Sint) : n == 2 ? (u ? MTLPixelFormatR16Uint : MTLPixelFormatR16Sint) : n == 4 ? (u ? MTLPixelFormatR32Uint : MTLPixelFormatR32Sint)
+    size_t n = mtl_pf_bytes(t.pixelFormat); int u = dpf == NVN_DPF_UINT, cls = dpf != NVN_DPF_FLOAT && mtl_pf_dpf(t.pixelFormat) != dpf;
+    MTLPixelFormat pf = !cls ? t.pixelFormat : n == 1 ? (u ? MTLPixelFormatR8Uint : MTLPixelFormatR8Sint) : n == 2 ? (u ? MTLPixelFormatR16Uint : MTLPixelFormatR16Sint) : n == 4 ? (u ? MTLPixelFormatR32Uint : MTLPixelFormatR32Sint)
                       : n == 8 ? (u ? MTLPixelFormatRG32Uint : MTLPixelFormatRG32Sint) : n == 16 ? (u ? MTLPixelFormatRGBA32Uint : MTLPixelFormatRGBA32Sint) : MTLPixelFormatInvalid;
     id<MTLTexture> base = t.parentTexture ? t.parentTexture : t;
     if (pf == MTLPixelFormatInvalid || tid <= 0 || tid >= g_ntreg) {
         RED_ONCE(106, "image read as %s in the shader, texture of Metal format %lu (texture ID %d): no view of that class, bound as is (reads undefined)", u ? "uint" : "int", (unsigned long)t.pixelFormat, tid); return nil; }
-    if (!(base.usage & MTLTextureUsagePixelFormatView)) {   // made without the format-view usage (it costs lossless compression, so textures get it only when needed): upgraded before the next
+    if (cls && !(base.usage & MTLTextureUsagePixelFormatView)) {   // made without the format-view usage (it costs lossless compression, so textures get it only when needed): upgraded before the next
         int seen = 0; for (int i = 0; i < g_imfit_npend; i++) seen |= g_imfit_pend[i] == tid;   // draw pass opens, as an upgrade copies the texture and so cannot run inside this draw's pass;
         if (!seen && g_imfit_npend < 16) g_imfit_pend[g_imfit_npend++] = tid;                  // until then the slot is bound as is
         return nil; }
@@ -3447,7 +3462,7 @@ static id<MTLTexture> img_fit(int tid, id<MTLTexture> t, int dpf, uint64_t *rid)
     NSUInteger ns = t.textureType == MTLTextureType3D ? 1 : t.arrayLength * (t.textureType == MTLTextureTypeCube || t.textureType == MTLTextureTypeCubeArray ? 6 : 1);
     id<MTLTexture> v = [base newTextureViewWithPixelFormat:pf textureType:t.textureType levels:NSMakeRange(l0, t.mipmapLevelCount) slices:NSMakeRange(s0, ns)];
     if (!v) { RED_ONCE(107, "cannot create the image view of class %s (texture ID %d, Metal format %lu)", u ? "uint" : "int", tid, (unsigned long)t.pixelFormat); return nil; }
-    { static int once; if (!once++) MLOG("image read in another class than its texture: first case texture ID %d Metal format %lu → %lu", tid, (unsigned long)t.pixelFormat, (unsigned long)pf); }
+    { static int once; if (cls && !once++) MLOG("image read in another class than its texture: first case texture ID %d Metal format %lu → %lu", tid, (unsigned long)t.pixelFormat, (unsigned long)pf); }
     r->im = (void *)CFBridgingRetain(v); r->im_of = (__bridge void *)t; r->im_rid = v.gpuResourceID._impl;
     *rid = r->im_rid; return v;
 }
@@ -3626,6 +3641,15 @@ static const prog_t *bind_stages(const prog_t *p, int stages) {
     memset(&cp[i], 0, sizeof cp[i]); cp[i].magic = MAGIC('P', 'R', 'O', 'G'); cp[i].serial = nvn_new_serial(); serial_put(cp[i].serial, o);
     { static int once; if (!once++) MLOG("per-stage program binding: first combined program (vertex %s fragment %s)", o->sh[0] ? o->sh[0]->key : "-", o->sh[1] ? o->sh[1]->key : "-"); }
     return &cp[i];
+}
+// S.prog after S was copied back from a saved state (the precompile prediction, the fusion probe and redraw, deferred draws). A combined program is a slot of the ring above, and binds
+// replayed after the save can give the slot the saved pointer names to another combination. AI: THE SOMNIUM FILES (Unity 2017.4) binds its vertex and fragment programs apart; the
+// prediction over a 280-draw submission (pso_predict_rest) made more than NCMP combinations, and the draw after it ran Legacy Shaders/VertexLit's shadow vertex shader with
+// PSYNC/BG_AlphaTest's shadow pixel shader, a pipeline Metal refused (the pixel shader reads two outputs that vertex shader does not write). The combination is taken again from S.bst
+static void prog_resolve(void) {
+    const prog_t *np = bind_stages(NULL, 0); if (np == S.prog) return;
+    S.prog = np; g_pso_dirty = 1;
+    static unsigned n; if (!n++ || !(n & (n - 1))) MLOG("combined program taken again after a state restore: its ring slot had been reused (%u times so far)", n);
 }
 static void state_reset(void) {
     memset(&S, 0, sizeof S);
@@ -4437,8 +4461,9 @@ static int encode_args_(id<MTLCommandEncoder> en, NvShader *sh, int nvn_stage, i
             int tid = reg < 32 ? (int)(S.img[nvn_stage][reg] & 0xfffff) : 0;
             void *tv = NULL; uint64_t trid = tid ? tex_fast_rid(tid, &tv) : 0; __unsafe_unretained id<MTLTexture> t = (__bridge id<MTLTexture>)tv;
             if (passdump()) PD("W %llu st%d reg%d tid=%d %s ser=%llu", g_stat_pass, nvn_stage, reg, tid, t ? "real" : "dummy", t && tid < g_ntreg ? g_treg[tid].t.serial : 0ull);
-            if (t && !(t.usage & MTLTextureUsageShaderWrite)) { RED_ONCE(32, "texture bound to an image slot lacks the shader-write usage (texture ID %d)", tid); t = nil; }
-            if (t && b->dpf != NVN_DPF_FLOAT && mtl_pf_dpf(t.pixelFormat) != b->dpf) { uint64_t r2 = 0; id<MTLTexture> v = img_fit(tid, t, b->dpf, &r2); if (v) { t = v; trid = r2; } }   // see img_fit
+            int swz_only = t && !(t.usage & MTLTextureUsageShaderWrite) && (t.parentTexture.usage & MTLTextureUsageShaderWrite);   // a swizzled view of an image texture (img_fit)
+            if (t && !(t.usage & MTLTextureUsageShaderWrite) && !swz_only) { RED_ONCE(32, "texture bound to an image slot lacks the shader-write usage (texture ID %d)", tid); t = nil; }
+            if (t && (swz_only || (b->dpf != NVN_DPF_FLOAT && mtl_pf_dpf(t.pixelFormat) != b->dpf))) { uint64_t r2 = 0; id<MTLTexture> v = img_fit(tid, t, b->dpf, &r2); if (v) { t = v; trid = r2; } else if (swz_only) t = nil; }   // see img_fit
             if (!t) { t = dummy_img(b->dtt, b->dpf); trid = g_dummy_img_rid[b->dtt & 7][b->dpf & 3]; }   // Unbound: D3D semantics discard the write - write into a dedicated dummy texture so the set that reads 0 is not polluted
             slots[aid] = trid;
             USE(t, MTLResourceUsageRead | MTLResourceUsageWrite);
@@ -4881,7 +4906,7 @@ static void pso_predict_rest(void) {
     (void)df; (void)sf;
     for (int i = 0; i < na; i++) pso_pend_kick(&qa[i].k, (__bridge NvShader *)qa[i].vs, (__bridge NvShader *)qa[i].fs);
     for (int i = 0; i < nb; i++) pso_pend_kick(&qb[i].k, (__bridge NvShader *)qb[i].vs, (__bridge NvShader *)qb[i].fs);
-    memcpy(&S, &Ssave, sizeof S); args_dirty_all(); g_pso_dirty = pso_dirty; g_dss_dirty = dss_dirty;
+    memcpy(&S, &Ssave, sizeof S); args_dirty_all(); g_pso_dirty = pso_dirty; g_dss_dirty = dss_dirty; prog_resolve();
     static int logged; if (g_pp_kicked > (uint64_t)kicked0 && logged++ < 20) MLOG("parallel precompile: %d draws left in this submission, %d pipelines handed to the background", draws, (int)g_pp_kicked - kicked0);
 }
 
@@ -4912,7 +4937,7 @@ static void fz_probe_cov2(const p_set_rt *r2, const uint8_t *first, const int8_t
     }
     memcpy(&S, &Ssave, sizeof S); args_dirty_all(); R = Rsave;
     g_fd_dw = fdw; g_fd_di = fdi; g_fd_why = fdwhy;
-    g_pso_dirty = pso_dirty; g_dss_dirty = dss_dirty;
+    g_pso_dirty = pso_dirty; g_dss_dirty = dss_dirty; prog_resolve();
 }
 
 static int fz_load_covers(int i, id<MTLTexture> t, NSUInteger level) {
@@ -5273,10 +5298,10 @@ static void fz_check_run(const fuse_t *fz) {
     static typeof(S) Ssave; memcpy(&Ssave, &S, sizeof S); typeof(R) Rsave = R; const uint8_t *en0 = g_exec_next;
     g_fz_checking = 1; g_exec_next = NULL;   // Turn off all lookahead during the redraw (continuation / hoisting / merging / depth-stencil on demand): normal path
     R.rt = fz->rt2; memcpy(R.clear_c, fz->clr2, 8); memcpy(R.cc, fz->cc2, sizeof R.cc); R.clear_d = fz->cd2f; R.clear_s = fz->cs2f; R.cd = fz->cd2; R.cs = fz->cs2;
-    for (int i = 0; i < g_nfzs; i++) { fz_snap *z = &g_fzs[i]; memcpy(&S, z->S_, sizeof S); args_dirty_all(); R.sc = z->sc; R.has_sc = z->has_sc; g_pso_dirty = g_dss_dirty = 1;
+    for (int i = 0; i < g_nfzs; i++) { fz_snap *z = &g_fzs[i]; memcpy(&S, z->S_, sizeof S); args_dirty_all(); R.sc = z->sc; R.has_sc = z->has_sc; g_pso_dirty = g_dss_dirty = 1; prog_resolve();
         draw(z->idx ? NULL : &z->dw, z->idx ? &z->di : NULL); }
     rp_end();
-    memcpy(&S, &Ssave, sizeof S); args_dirty_all(); R = Rsave; g_exec_next = en0; g_fz_checking = 0; g_pso_dirty = g_dss_dirty = 1;
+    memcpy(&S, &Ssave, sizeof S); args_dirty_all(); R = Rsave; g_exec_next = en0; g_fz_checking = 0; g_pso_dirty = g_dss_dirty = 1; prog_resolve();
     for (int a = 0; a < na; a++) {
         id<MTLTexture> t = att[a], c = scr[a]; NSUInteger W = t.width, H = t.height, bpp = (NSUInteger)(att_bytes(t, 0) / (W * H));
         id<MTLBuffer> b1 = [g_dev newBufferWithLength:W * H * bpp options:MTLResourceStorageModeShared], b2 = [g_dev newBufferWithLength:W * H * bpp options:MTLResourceStorageModeShared];
@@ -5404,10 +5429,10 @@ static void defer_replay(void) {
         g_defer_cur = d; if (d->reset_between) g_vis_counting = 0;
         { static int once; if (!once++) MLOG("deferred pass merge: first case pass %llu, group %d replays %d draws", g_stat_pass, gi, d->n); }   // With multiple groups, several groups may already have been created before the first replay, so it cannot be judged by g_defer_n == 1
         for (int i = 0; i < d->n; i++) { defer_snap *z = &d->snap[i]; static uint8_t lm[8]; for (int j = 0; j < 8; j++) lm[j] = d->lmap[j] == 0xff || d->lmap[j] >= 8 ? 0xff : z->pm[d->lmap[j]];
-            memcpy(&S, z->S_, sizeof S); args_dirty_all(); R.sc = z->sc; R.has_sc = z->has_sc; g_pso_dirty = g_dss_dirty = 1; g_pso_lmap = lm; draw(z->idx ? NULL : &z->dw, z->idx ? &z->di : NULL); }
+            memcpy(&S, z->S_, sizeof S); args_dirty_all(); R.sc = z->sc; R.has_sc = z->has_sc; g_pso_dirty = g_dss_dirty = 1; prog_resolve(); g_pso_lmap = lm; draw(z->idx ? NULL : &z->dw, z->idx ? &z->di : NULL); }
         defer_release_one(d);
     }
-    g_vis_counting = vis; memcpy(&S, &save, sizeof S); args_dirty_all(); R.sc = sc; R.has_sc = has_sc; g_pso_lmap = NULL; g_pso_fsfn = nil; memset(&g_pso_fz, 0, sizeof g_pso_fz); g_pso_dirty = g_dss_dirty = 1; g_exec_next = en0; g_defer_replaying = 0; g_defer_cur = &g_defer_slots[0];
+    g_vis_counting = vis; memcpy(&S, &save, sizeof S); args_dirty_all(); prog_resolve(); R.sc = sc; R.has_sc = has_sc; g_pso_lmap = NULL; g_pso_fsfn = nil; memset(&g_pso_fz, 0, sizeof g_pso_fz); g_pso_dirty = g_dss_dirty = 1; g_exec_next = en0; g_defer_replaying = 0; g_defer_cur = &g_defer_slots[0];
 }
 static void defer_fallback(void) {
     if (g_defer_replaying || !defer_has_active()) return;
@@ -5804,12 +5829,13 @@ static int fz_p2_draw(NvProg *pr, const p_draw *dw, const p_draw_idx *di, uint8_
                 int tid_ = (int)(h & 0xfffff); void *tv_ = NULL; if (tid_) tex_fast_rid(tid_, &tv_); __unsafe_unretained id<MTLTexture> tv = (__bridge id<MTLTexture>)tv_;
                 uint32_t apf_ = tv.parentTexture ? (uint32_t)tv.parentTexture.pixelFormat : (uint32_t)tv.pixelFormat; uint8_t swz_[4];
                 if (R.rt.has_cview[j] && R.rt.cview[j].set_format && !(nvn_fmt_to_mtl(R.rt.cview[j].format, &apf_, swz_) && apf_)) apf_ = 0;   // The attachment is attached through a format-changing view: take that format; if unrecognized, do not merge
-                MTLPixelFormat apf = (MTLPixelFormat)apf_;
-                if (!tv || (tv.parentTexture && (tv.parentRelativeLevel || tv.parentRelativeSlice)) || tv.pixelFormat != apf) {
-                    static int lg; if (lg++ < 8) LOG("[nvn-mtl] on-chip read merge: slot %d sampled view (base level %lu layer %lu format %lu) does not match the attachment (level 0 layer 0 format %lu); not merged (frame %llu pass %llu)", b->reg,
-                        tv && tv.parentTexture ? (unsigned long)tv.parentRelativeLevel : 0ul, tv && tv.parentTexture ? (unsigned long)tv.parentRelativeSlice : 0ul, (unsigned long)tv.pixelFormat, (unsigned long)apf,
+                MTLPixelFormat apf = (MTLPixelFormat)apf_; MTLTextureSwizzleChannels tsw = tv.swizzle;   // a read of the tile takes no channel mapping either (alpha 1 of an RGBX attachment, tex_by_id)
+                int tsw_id = tsw.red == MTLTextureSwizzleRed && tsw.green == MTLTextureSwizzleGreen && tsw.blue == MTLTextureSwizzleBlue && tsw.alpha == MTLTextureSwizzleAlpha;
+                if (!tv || (tv.parentTexture && (tv.parentRelativeLevel || tv.parentRelativeSlice)) || tv.pixelFormat != apf || !tsw_id) {
+                    static int lg; if (lg++ < 8) LOG("[nvn-mtl] on-chip read merge: slot %d sampled view (base level %lu layer %lu format %lu%s) does not match the attachment (level 0 layer 0 format %lu); not merged (frame %llu pass %llu)", b->reg,
+                        tv && tv.parentTexture ? (unsigned long)tv.parentRelativeLevel : 0ul, tv && tv.parentTexture ? (unsigned long)tv.parentRelativeSlice : 0ul, (unsigned long)tv.pixelFormat, tsw_id ? "" : ", swizzled", (unsigned long)apf,
                         (unsigned long long)atomic_load(&g_cur_frame), g_stat_pass);
-                    PD("F %llu not provable: slot %d sampled view is not the attachment itself (level / layer / format differ)", g_stat_pass, b->reg); return 0; } }
+                    PD("F %llu not provable: slot %d sampled view is not the attachment itself (level / layer / format / channel mapping differ)", g_stat_pass, b->reg); return 0; } }
             int any = 0;
             for (int c = 0; c < fs->rf.nfc; c++) if (fs->rf.fc_reg[c] == b->reg) {
                 if (!uv_proof(vs, fs->rf.fc_locn[c], dw, di)) { PD("F %llu not provable: slot %d sample coordinate is not this pixel (interpolated output %d)", g_stat_pass, b->reg, fs->rf.fc_locn[c]); return 0; }

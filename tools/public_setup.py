@@ -20,7 +20,7 @@ chain=re.search(r'#define DMSH_CHAIN "([0-9a-f]+)"',(ROOT/'dm/games/01006F800232
 assert (a.shaders/('b-'+chain)).is_dir(),'Expected the matching complete official b-'+chain+' directory under --shaders'
 assert a.font.is_file();a.work.mkdir(parents=True,exist_ok=True);a.output.parent.mkdir(parents=True,exist_ok=True)
 if a.shell:
- subprocess.run([sys.executable,str(ROOT/'tools/pack_shell.py'),'--shell',str(a.shell.resolve()),'--patched',str(a.patched),'--shaders',str(a.shaders),'--font',str(a.font),'--output',str(a.output)],check=True);sys.exit(0)
+ subprocess.run([sys.executable,str(ROOT/'tools/pack_shell.py'),'--shell',str(a.shell.resolve()),'--patched',str(a.patched),'--shaders',str(a.shaders),'--font',str(a.font),'--output',str(a.output),'--control',str(a.romfs.parent/'control.nacp')],check=True);sys.exit(0)
 v=json.loads((ROOT/'config/version.json').read_text())
 e=dict(os.environ,GAME='01006F8002326000',W=str(a.work),PATCHED=str(a.patched),ROMFS=str(a.romfs),MSL_IOS=str(a.shaders),STD_FONT=str(a.font),FONT_PY=sys.executable,DM_EXTERNAL_ROMFS='1',DM_BUNDLE_ID='org.acnhmobile.experimental',DM_DISPLAY_NAME='ACNH Mobile',DM_APP_VERSION=v['version'],DM_BUILD_NUMBER=str(v['build']),DM_LANG='zh-Hans',DM_ICON=str(ROOT/'dm/ios/Resources/AppIcon.png'))
 # Never carry legacy diagnostics or runtime overrides into the official baseline.

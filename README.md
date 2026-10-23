@@ -1,6 +1,6 @@
 # ACNH Mobile
 
-**0.3.1 · build 3 — official Metal 4 edition, iOS 26+.**
+**0.3.7 · build 9 — official Metal 4 edition, iOS 26+.**
 
 A native compatibility runtime for Animal Crossing: New Horizons 3.0.3. The runtime and shader translation sources are based on [NXNative](https://github.com/seedds/nxnative) commit `e72a06510e6dfff4a77c49fd205a82e21cad0786`.
 
@@ -8,7 +8,7 @@ This edition uses the official Metal 4 replay path and matching shader chain. It
 
 [简体中文](README.zh-CN.md) · [Shell guide](docs/SHELL.md) · [Build guide](docs/BUILD.md)
 
-This update includes the official NVN command-recording boundary and multichannel Vorbis fixes. An additional L button sits beside minus at the top left on iPhone/iPad; the existing jump icon remains.
+This update fixes shader-program selection after replay state restoration and H.264 end-of-stream draining, and supports the local Metal and spirv-cross compilers during shader preparation. The dirt-path preview color fix, startup settings and Generic / Dedicated touch layouts are retained. Existing 3.0.3 .data packs remain compatible. See [release notes](docs/RELEASE-v0.3.7.zh-CN.md).
 
 ## Downloads
 
