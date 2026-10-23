@@ -6,6 +6,9 @@ import SwiftUI
 import UIKit
 import os
 
+@_silgen_name("dm_edit_pad_layout")
+private func dmEditPadLayout(_ parent: UnsafeMutableRawPointer, _ base: UnsafePointer<CChar>)
+
 private struct Setting: Decodable, Identifiable {
     let env, kind, label, note, def: String
     let options: [[String]]?   // choice: [value, label]
@@ -18,17 +21,17 @@ private struct SettingsFile: Decodable { let settings: [Setting] }
 private func info(_ key: String) -> Any? { Bundle.main.object(forInfoDictionaryKey: key) }
 private let defaults = UserDefaults.standard
 private func localized(_ english: String, _ chinese: String) -> String {
-    Locale.preferredLanguages.first?.hasPrefix("zh") == true ? chinese : english
+    LauncherText.text(english, chinese)
 }
 private func label(_ s: Setting) -> String {
-    let names = ["ACNH_CONTROLLER_LAYOUT": "控制器布局", "DM_FPS_TARGET": "帧率", "DM_RENDER_SCALE": "渲染比例", "DM_OPMODE": "运行模式", "DM_LANG": "游戏语言", "DM_SHOW_FPS": "显示帧率", "DM_METAL_HUD": "性能信息面板"]
+    let names = ["ACNH_CUSTOM_BASE": "调整对象", "ACNH_AUDIO_IGNORE_SILENT": "静音模式下播放声音", "ACNH_CONTROLLER_LAYOUT": "控制器布局", "DM_FPS_TARGET": "帧率", "DM_RENDER_SCALE": "渲染比例", "DM_OPMODE": "运行模式", "DM_LANG": "游戏语言", "DM_SHOW_FPS": "显示帧率", "DM_METAL_HUD": "性能信息面板"]
     return localized(s.label, names[s.env] ?? s.label)
 }
 private func optionLabel(_ s: Setting, _ option: [String]) -> String {
-    if s.env == "ACNH_CONTROLLER_LAYOUT" { return localized(option[1], option[0] == "generic" ? "通用" : "专属") }
+    if s.env == "ACNH_CONTROLLER_LAYOUT" || s.env == "ACNH_CUSTOM_BASE" { return localized(option[1], option[0] == "custom" ? "自定义" : option[0] == "generic" ? "通用" : "专属") }
     if s.env == "DM_OPMODE" { return localized(option[1], option[0] == "1" ? "主机模式" : "掌机模式") }
-    if s.env == "DM_LANG", Locale.preferredLanguages.first?.hasPrefix("zh") == true {
-        return Locale(identifier: "zh-Hans").localizedString(forIdentifier: option[0]) ?? option[1]
+    if s.env == "DM_LANG" {
+        return Locale(identifier: Locale.preferredLanguages.first ?? "en").localizedString(forIdentifier: option[0]) ?? option[1]
     }
     return option[1]
 }
@@ -64,6 +67,7 @@ private final class LauncherModel: ObservableObject {
 private struct SettingRow: View {
     let s: Setting
     @ObservedObject var m: LauncherModel
+    let edit: (String) -> Void
     var body: some View {
         let locked = m.fromFile.contains(s.env)
         Section {
@@ -81,8 +85,12 @@ private struct SettingRow: View {
             default:
                 Toggle(label(s), isOn: Binding(get: { (m.values[s.env] ?? s.def) == "1" }, set: { m.values[s.env] = $0 ? "1" : "0" }))
             }
+            if s.env == "ACNH_CUSTOM_BASE" {
+                Button(localized("Adjust positions and sizes", "调整位置与大小")) { edit(m.values[s.env] ?? "acnh") }
+            }
         } footer: {
-            let note = locked ? (s.note.isEmpty ? "" : s.note + " · ") + "Set by an env file" : s.note
+            let translated = LauncherText.note(env: s.env, fallback: s.note)
+            let note = locked ? (translated.isEmpty ? "" : translated + " · ") + localized("Set by an env file", "由配置文件设置") : translated
             if !note.isEmpty { Text(note) }
         }
         .disabled(locked)
@@ -91,6 +99,7 @@ private struct SettingRow: View {
 
 private struct LauncherView: View {
     @ObservedObject var m: LauncherModel
+    let edit: (String) -> Void
     let play: () -> Void
     @State private var memory = os_proc_available_memory()
 
@@ -100,14 +109,18 @@ private struct LauncherView: View {
                 if let icon = appIcon() {
                     Image(uiImage: icon).resizable().frame(width: 96, height: 96).clipShape(RoundedRectangle(cornerRadius: 22))
                 }
-                Text((info("CFBundleDisplayName") as? String) ?? "Game").font(.title.weight(.bold)).multilineTextAlignment(.center)
+                Text((info("CFBundleDisplayName") as? String) ?? localized("Game", "游戏")).font(.title.weight(.bold)).multilineTextAlignment(.center)
                 Text("\(localized("Version", "版本")) \((info("CFBundleShortVersionString") as? String) ?? "") · \((info("CFBundleVersion") as? String) ?? "")").font(.callout).foregroundStyle(.secondary)
                 playButton
             }
             .padding(24)
             .frame(maxWidth: .infinity)
             Form {
-                ForEach(m.settings) { SettingRow(s: $0, m: m) }
+                ForEach(m.settings) { setting in
+                    if setting.env != "ACNH_CUSTOM_BASE" || m.values["ACNH_CONTROLLER_LAYOUT"] == "custom" {
+                        SettingRow(s: setting, m: m, edit: edit)
+                    }
+                }
                 Section {
                     HStack {
                         Text(localized("Memory available", "可用内存"))
@@ -149,7 +162,10 @@ public func dmShowLauncher(_ viewController: UnsafeMutableRawPointer, _ done: @c
     let parent = Unmanaged<UIViewController>.fromOpaque(viewController).takeUnretainedValue()
     let model = LauncherModel(file.settings)
     var host: UIViewController?
-    let view = LauncherView(m: model) {
+    let view = LauncherView(m: model, edit: { base in
+        guard let h = host else { return }
+        base.withCString { dmEditPadLayout(Unmanaged.passUnretained(h).toOpaque(), $0) }
+    }) {
         guard let h = host else { return }
         host = nil
         model.apply()

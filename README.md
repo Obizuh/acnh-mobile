@@ -1,14 +1,14 @@
 # ACNH Mobile
 
-**0.3.7 · build 9 — official Metal 4 edition, iOS 26+.**
+**0.3.13 · build 15 — official Metal 4 edition, iOS 26+.**
 
 A native compatibility runtime for Animal Crossing: New Horizons 3.0.3. The runtime and shader translation sources are based on [NXNative](https://github.com/seedds/nxnative) commit `e72a06510e6dfff4a77c49fd205a82e21cad0786`.
 
-This edition uses the official Metal 4 replay path and matching shader chain. It retains ACNH's icon touch controls, tool wheel, physical controllers, R/field-triggered Chinese text input, direct external `.data` access, transactional saves, amiibo file import, Photos export and bounded haptics. There is no added layout-editing or typing toolbar.
+This edition uses the official Metal 4 replay path and matching shader chain. It retains ACNH's icon touch controls, tool wheel, physical controllers, R/field-triggered Chinese text input, direct external `.data` access, transactional saves, amiibo file import, Photos export and bounded haptics. Custom touch layouts can be edited from startup settings; there is no added in-game typing toolbar.
 
 [简体中文](README.zh-CN.md) · [Shell guide](docs/SHELL.md) · [Build guide](docs/BUILD.md)
 
-This update fixes shader-program selection after replay state restoration and H.264 end-of-stream draining, and supports the local Metal and spirv-cross compilers during shader preparation. The dirt-path preview color fix, startup settings and Generic / Dedicated touch layouts are retained. Existing 3.0.3 .data packs remain compatible. See [release notes](docs/RELEASE-v0.3.7.zh-CN.md).
+This release adds custom touch layouts based on Generic or Dedicated controls, with position/size editing, Save, Cancel and Reset. The Dedicated stick returns to its original size. It also includes optional playback in silent mode, localized launcher notes and upstream compute-backed geometry replay. Existing .data packs remain compatible; rebuild older shader caches for the new chain. See [release notes](docs/RELEASE-v0.3.13.zh-CN.md).
 
 ## Downloads
 

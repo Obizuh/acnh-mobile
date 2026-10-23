@@ -12,4 +12,6 @@ DM_OPMODE	choice	1=Docked,0=Handheld	DM_GAME_OPMODE	always	Console mode	Handheld
 DM_LANG	choice	languages	build:DM_LANG	languages>1	Game language
 DM_SHOW_FPS	toggle	-	build:DM_SHOW_FPS	always	Frame-rate counter
 DM_METAL_HUD	toggle	-	0	always	Performance HUD	Apple's Metal HUD over the game: frame rate, frame and GPU time, memory
-ACNH_CONTROLLER_LAYOUT	choice	generic=Generic,acnh=Dedicated	acnh	always	Controller layout
+ACNH_CONTROLLER_LAYOUT	choice	generic=Generic,acnh=Dedicated,custom=Custom	acnh	always	Controller layout
+ACNH_AUDIO_IGNORE_SILENT	toggle	-	0	always	Play sound in silent mode
+ACNH_CUSTOM_BASE	choice	generic=Generic,acnh=Dedicated	acnh	always	Customize from

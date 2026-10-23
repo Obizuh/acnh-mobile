@@ -9,6 +9,7 @@
 #include "front.h"
 #include "AcnhTouchLogic.h"
 #include "AcnhTextDetect.h"
+#import "PadCustomization.h"
 enum { B_A=0,B_B,B_X,B_Y,B_LS,B_RS,B_L,B_R,B_ZL,B_ZR,B_PLUS,B_MINUS,B_LEFT,B_UP,B_RIGHT,B_DOWN,B_L_TOP,B_N };
 _Static_assert(B_UP==13 && B_A==0,"Tool-wheel input bit mapping");
 // Both visible L controls send the same Switch button.
@@ -55,7 +56,7 @@ static CAShapeLayer *acnhControlOutline(CALayer *parent){CAShapeLayer *l=[CAShap
 static CAShapeLayer *glyph(CALayer *parent,int b){CAShapeLayer *l=[CAShapeLayer layer];l.fillColor=nil;l.strokeColor=[UIColor colorWithWhite:1 alpha:.8].CGColor;l.lineCap=kCALineCapRound;l.lineJoin=kCALineJoinRound;setPath(l,iconPath(b));[parent addSublayer:l];return l;}
 static void positionGlyph(CAShapeLayer *l,CGPoint c,CGFloat size){l.bounds=CGRectMake(0,0,64,64);l.position=c;l.affineTransform=CGAffineTransformMakeScale(size/64,size/64);l.lineWidth=3.2;}
 static void placeLabel(CATextLayer *t,CGPoint c,CGFloat size){t.fontSize=size;t.frame=CGRectMake(c.x-size*1.5,c.y-size*.7,size*3,size*1.5);}
-@interface DmGamepad:UIView
+@interface DmGamepad:UIView<ACNHEditablePad>
 @end
 static __weak DmGamepad *g_view;
 @implementation DmGamepad {
@@ -79,12 +80,14 @@ static __weak DmGamepad *g_view;
    }else _glyph[b]=glyph(_key[b],b);
   }
   _rightKnob=acnhControlOutline(self.layer);_glyph[B_RS]=glyph(_rightKnob,B_RS);
+  if(!acnh_pad_editing()){
   [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(padsChanged) name:GCControllerDidConnectNotification object:nil];
   [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(padsChanged) name:GCControllerDidDisconnectNotification object:nil];[self padsChanged];
+  }
  }
  return self;
 }
-- (CGFloat)radius:(int)b{
+- (CGFloat)baseRadius:(int)b{
  CGFloat h=self.bounds.size.height;
  if(b==B_L_TOP)return MIN(20,MAX(14,h*.0324));
  if(b==B_A)return MAX(28,h*.074);
@@ -95,15 +98,16 @@ static __weak DmGamepad *g_view;
  if(b<=B_Y)return MAX(20,h*(b==B_B?.051:.0481));
  return MIN(20,MAX(14,h*.0324));
 }
+- (CGFloat)radius:(int)b{return [self baseRadius:b]*acnh_pad_scale(@"acnh",[NSString stringWithFormat:@"button.%d",b]);}
 - (CGPoint)atX:(CGFloat)x y:(CGFloat)y radius:(CGFloat)radius{
  CGRect r=UIEdgeInsetsInsetRect(self.bounds,self.safeAreaInsets);CGFloat m=radius+3;
  return CGPointMake(MAX(CGRectGetMinX(r)+m,MIN(CGRectGetMaxX(r)-m,x*self.bounds.size.width)),MAX(CGRectGetMinY(r)+m,MIN(CGRectGetMaxY(r)-m,y*self.bounds.size.height)));
 }
-- (CGPoint)buttonCenter:(int)b{
+- (CGPoint)defaultButtonCenter:(int)b{
  if(b==B_L_TOP){
-  CGPoint minus=[self buttonCenter:B_MINUS];CGFloat radius=[self radius:b];
+  CGPoint minus=[self defaultButtonCenter:B_MINUS];CGFloat radius=[self baseRadius:b];
   CGRect safe=UIEdgeInsetsInsetRect(self.bounds,self.safeAreaInsets);
-  return CGPointMake(MIN(CGRectGetMaxX(safe)-radius-3,minus.x+[self radius:B_MINUS]+radius+12),minus.y);
+  return CGPointMake(MIN(CGRectGetMaxX(safe)-radius-3,minus.x+[self baseRadius:B_MINUS]+radius+12),minus.y);
  }
  CGFloat x=0,y=0;
  switch(b){
@@ -114,8 +118,17 @@ static __weak DmGamepad *g_view;
  }
  return [self atX:x y:y radius:[self radius:b]];
 }
-- (CGFloat)stickR{return MAX(38,self.bounds.size.height*.0944);}
-- (CGPoint)stickHome{return [self atX:.15625 y:.74074 radius:self.stickR];}
+- (CGPoint)buttonCenter:(int)b{return acnh_pad_point(@"acnh",[NSString stringWithFormat:@"button.%d",b],[self defaultButtonCenter:b],self,[self radius:b]);}
+// Dedicated and its custom template use the original stick size.
+- (CGFloat)stickR{return MAX(38,self.bounds.size.height*.0944)*acnh_pad_scale(@"acnh",@"stick");}
+- (CGFloat)toolWheelR{return MAX(38,self.bounds.size.height*.0944)*.65;}
+- (CGPoint)stickHome{return acnh_pad_point(@"acnh",@"stick",[self atX:.15625 y:.74074 radius:self.stickR],self,self.stickR);}
+- (NSArray<NSDictionary *> *)acnhEditableControls{
+ NSMutableArray *out=[NSMutableArray array];
+ NSArray *names=@[@"A · 互动",@"B · 返回/跑步",@"X · 背包",@"Y · 拾取",@"L3",@"视角",@"L · 跳跃",@"R · 输入",@"ZL · 手机",@"ZR · 表情",@"+",@"−",@"工具左",@"工具环",@"工具右",@"收起工具",@"左上 L"];
+ for(int b=0;b<B_N;b++)if(b!=B_LS)[out addObject:acnh_pad_control([NSString stringWithFormat:@"button.%d",b],names[b],[self buttonCenter:b],[self radius:b])];
+ [out addObject:acnh_pad_control(@"stick",@"移动摇杆",self.stickHome,self.stickR)];return out;
+}
 - (int)buttonAt:(CGPoint)p{
  int hit=-1;CGFloat best=1.08;
  for(int b=0;b<B_N;b++){
@@ -204,13 +217,13 @@ static __weak DmGamepad *g_view;
 - (void)touchesMoved:(NSSet<UITouch *> *)ts withEvent:(UIEvent *)event{
  for(UITouch *t in ts){int owner=[_owner objectForKey:t].unsignedLongLongValue&255;CGPoint p=[t locationInView:self];
   if(owner==C_STICK)_stickNow=p;else if(owner==C_CAMERA)_cameraNow=p;
-  else if(owner==C_TOOL)acnh_wheel_move(&_wheel,p.x-_toolOrigin.x,p.y-_toolOrigin.y,self.stickR*.65);
+  else if(owner==C_TOOL)acnh_wheel_move(&_wheel,p.x-_toolOrigin.x,p.y-_toolOrigin.y,self.toolWheelR);
  }
  [self recompute];[self publishScreenTouches];
 }
 - (void)finishTouches:(NSSet<UITouch *> *)ts cancelled:(BOOL)cancelled{
  for(UITouch *t in ts){
-  if(t==_toolTouch){if(cancelled)[self cancelTool];else{CGPoint p=[t locationInView:self];acnh_wheel_move(&_wheel,p.x-_toolOrigin.x,p.y-_toolOrigin.y,self.stickR*.65);_toolTouch=nil;acnh_wheel_end(&_wheel,CACurrentMediaTime());}}
+  if(t==_toolTouch){if(cancelled)[self cancelTool];else{CGPoint p=[t locationInView:self];acnh_wheel_move(&_wheel,p.x-_toolOrigin.x,p.y-_toolOrigin.y,self.toolWheelR);_toolTouch=nil;acnh_wheel_end(&_wheel,CACurrentMediaTime());}}
   if(t==_stick)_stick=nil;if(t==_camera)_camera=nil;[_owner removeObjectForKey:t];[_screenTouches removeObjectForKey:t];
  }
  [self recompute];[self publishScreenTouches];
@@ -315,9 +328,11 @@ extern void dm_generic_gamepad_reset(void);
 static BOOL g_generic_layout;
 UIView *dm_gamepad_view(CGRect frame) {
     const char *layout = getenv("ACNH_CONTROLLER_LAYOUT");
-    g_generic_layout = layout && strcmp(layout, "generic") == 0;
+    g_generic_layout = layout && (!strcmp(layout, "generic") || (!strcmp(layout, "custom") && getenv("ACNH_CUSTOM_BASE") && !strcmp(getenv("ACNH_CUSTOM_BASE"), "generic")));
     return g_generic_layout ? dm_generic_gamepad_view(frame) : acnh_gamepad_view(frame);
 }
 void dm_gamepad_reset(void) {
     if (g_generic_layout) dm_generic_gamepad_reset(); else acnh_gamepad_reset();
 }
+
+UIView *dm_acnh_gamepad_preview(CGRect frame){return [[DmGamepad alloc] initWithFrame:frame];}
