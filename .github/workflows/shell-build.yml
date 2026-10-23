@@ -45,6 +45,7 @@ jobs:
           python tools/test_one_click.py
           python tools/test_prepare_game.py
           python tools/test_launcher.py
+          python tools/test_own_compilers.py
       - name: Install project generator
         run: brew install xcodegen
       - name: Build official Metal 4 shell without game files
