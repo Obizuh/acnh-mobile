@@ -42,4 +42,4 @@ Credits and licenses: [NXNative](https://github.com/seedds/nxnative), [D2R Mobil
 
 ## Local launchers
 
-Three root `.command` launchers build a private IPA, a private IPA plus external data, or a game-free shell. Choose your own game folder and prod.keys to extract, rewrite and translate official Metal shaders, with automatic dependency installation; existing prepared inputs can also be reused; see [local launcher guide](docs/ONE-CLICK.zh-CN.md).
+Two root `.command` launchers build a private IPA or a private IPA plus external data. Choose your own game folder and prod.keys to extract, rewrite and translate official Metal shaders, with automatic dependency installation; existing prepared inputs can also be reused; see [local launcher guide](docs/ONE-CLICK.zh-CN.md).

@@ -165,7 +165,7 @@ def run(command,log):
         if proc.wait():raise RuntimeError('构建失败，请查看日志。')
 
 def main():
-    ap=argparse.ArgumentParser(description=__doc__);ap.add_argument('mode',choices=['ipa','ipa-data','shell']);ap.add_argument('--plan',action='store_true');ap.add_argument('--select',action='store_true',help='选择游戏目录和 prod.keys');ap.add_argument('--game-dir',type=Path);ap.add_argument('--keys',type=Path);ap.add_argument('--config',type=Path,default=CONFIG);a=ap.parse_args()
+    ap=argparse.ArgumentParser(description=__doc__);ap.add_argument('mode',choices=['ipa','ipa-data']);ap.add_argument('--plan',action='store_true');ap.add_argument('--select',action='store_true',help='选择游戏目录和 prod.keys');ap.add_argument('--game-dir',type=Path);ap.add_argument('--keys',type=Path);ap.add_argument('--config',type=Path,default=CONFIG);a=ap.parse_args()
     settings=json.loads(a.config.read_text()) if a.config.is_file() else {}
     python=settings.get('python')
     if python and not os.environ.get('ACNH_DEPENDENCIES_READY') and Path(python).absolute()!=Path(sys.executable).absolute():os.execv(python,[python,str(Path(__file__).resolve()),*sys.argv[1:]])
