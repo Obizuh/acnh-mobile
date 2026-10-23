@@ -53,21 +53,23 @@ def prepare(game,keys,work,run,log):
     for key in ('DM_GAMES_DIR','DM_GAMES_FIRST','DM_PATCH_FRONT','XLATE_DEBUG','XLATE_REDUCED','ACNH_RENDER_FLAGS','DM_ENV_FILE'):env.pop(key,None)
     (cache/'tmp').mkdir(exist_ok=True);logs=cache/'logs';logs.mkdir(exist_ok=True)
     sys.path.insert(0,str(repo/'dm/games'));import game as games
-    g=games.load(TITLE);u.PROG.mode='lines'
-    nx=u.build_nx_extract(repo,cache,logs,env)
+    g=games.load(TITLE);u.PROG.mode='lines';u.PROG.plan(6)
+    u.PROG.stage('build extraction tool')
+    nx=u.build_nx_extract(repo,cache,logs,env);u.PROG.end()
     ex=u.extract(nx,keys,cache/'extract','3.0.3',family['base'],family['updates'][0][1],None,logs,g)
     bad=u.build_mismatch(ex,'v2228224',g)
     if bad:raise ValueError('游戏版本不匹配：'+', '.join(bad))
     patched=cache/'patched';u.rewrite(sys.executable,repo,ex/'ExeFS',patched,env,logs,g)
     xlate=repo/'dm/gfx/tools/dmsh_xlate_bin/dmsh_xlate'
-    print('编译官方着色器转换工具…',flush=True)
-    u.run(['dotnet','publish',repo/'dm/gfx/tools/dmsh_xlate','-c','Release','-o',xlate.parent],logs/'translator.log',env=env)
+    u.PROG.stage('build official shader translator')
+    u.run(['dotnet','publish',repo/'dm/gfx/tools/dmsh_xlate','-c','Release','-o',xlate.parent],logs/'translator.log',env=env);u.PROG.end()
     env['XLATE']=str(xlate)
     for flag in ('--update-lock','--header'):
         u.run([sys.executable,repo/'dm/gfx/tools/dmsh_chain.py',flag],logs/('chain'+flag+'.log'),env=env)
     sh=cache/'shader'
     key=u.split_shaders(sys.executable,repo,[ex/'RomFS'],[ex/'ExeFS/main'],sh/'pkg',env,logs,g)
     ios=u.build_shaders(sys.executable,repo,sh,xlate,env,logs,g,pkg_key=key)
+    print('生成并核对匹配的着色器配置表…',flush=True)
     for tool,table in [('c1_guard.py','c1_full.tsv'),('cb_extent.py','cb_extent.tsv')]:
         chain=__import__('re').search(r'#define DMSH_CHAIN "([0-9a-f]+)"',g.table('dmsh_chain.h').read_text())[1]
         u.run([sys.executable,repo/'dm/gfx/tools'/tool,sh/'cache'/('b-'+chain),g.table(table)],logs/(tool+'.log'),env=env)
