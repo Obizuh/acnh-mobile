@@ -30,8 +30,7 @@ def raw_plan(game,keys):
     if version is not None and version!=2228224:raise ValueError('当前仅支持动森 3.0.3 更新。')
     return u,game,keys,family
 
-def prepare(game,keys,work,run,log):
-    u,game,keys,family=raw_plan(game,keys)
+def cache_key(family):
     # Fingerprint input contents, never key values. A new input set gets a separate cache.
     from build_shell import source_id
     h=hashlib.sha256(source_id(ROOT).encode())
@@ -40,7 +39,11 @@ def prepare(game,keys,work,run,log):
     for base in ('dm/tools','dm/gfx/tools','dm/games/'+TITLE,'dm/third_party/ryujinx'):
         for p in sorted((ROOT/base).rglob('*')):
             if p.is_file() and p.suffix in ('.py','.cs','.csproj','.tsv','.h','.lock') and not any(x in ('obj','bin','__pycache__') for x in p.parts):h.update(p.read_bytes())
-    cache=Path(work)/'prepared'/h.hexdigest()[:20];cache.mkdir(parents=True,exist_ok=True)
+    return h.hexdigest()[:20]
+
+def prepare(game,keys,work,run,log):
+    u,game,keys,family=raw_plan(game,keys)
+    cache=Path(work)/'prepared'/cache_key(family);cache.mkdir(parents=True,exist_ok=True)
     repo=cache/'source';manifest=cache/'prepared.json'
     if manifest.is_file():
         data=json.loads(manifest.read_text());shutil.copyfile(ROOT/'config/version.json',Path(data['build_root'])/'config/version.json');return {k:Path(v) if k!='chain' else v for k,v in data.items()}
