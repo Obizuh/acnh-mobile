@@ -64,7 +64,7 @@ static __weak DmGamepad *g_view;
  CAShapeLayer *_key[B_N],*_glyph[B_N],*_ring,*_knob,*_rightKnob;
  CATextLayer *_label[B_N];
  UITouch *_stick,*_camera,*_toolTouch;CGPoint _stickNow,_cameraNow,_toolOrigin;
- AcnhWheel _wheel;CADisplayLink *_toolLink;
+ AcnhWheel _wheel;int _wheelButton;CADisplayLink *_toolLink;
  uint64_t _faceBits,_btnBits;BOOL _checkingTextField,_nativeTextOpen,_showRunIcon;
 }
 - (instancetype)initWithFrame:(CGRect)f{
@@ -138,8 +138,8 @@ static __weak DmGamepad *g_view;
  return hit;
 }
 - (void)toolTick:(CADisplayLink *)link{[self recompute];}
-- (void)beginTool:(UITouch *)t{
- _toolTouch=t;_toolOrigin=[self buttonCenter:B_UP];acnh_wheel_begin(&_wheel,CACurrentMediaTime());
+- (void)beginTool:(UITouch *)t button:(int)button{
+ _toolTouch=t;_wheelButton=button;_toolOrigin=[self buttonCenter:button];acnh_wheel_begin_button(&_wheel,CACurrentMediaTime(),button);
  _toolLink=[CADisplayLink displayLinkWithTarget:self selector:@selector(toolTick:)];[_toolLink addToRunLoop:NSRunLoop.mainRunLoop forMode:NSRunLoopCommonModes];
 }
 - (void)cancelTool{_toolTouch=nil;acnh_wheel_cancel(&_wheel);[_toolLink invalidate];_toolLink=nil;}
@@ -206,7 +206,7 @@ static __weak DmGamepad *g_view;
 - (void)touchesBegan:(NSSet<UITouch *> *)ts withEvent:(UIEvent *)event{
  for(UITouch *t in ts){
   CGPoint p=[t locationInView:self];int hit=[self buttonAt:p];
-  if(hit==B_UP){if(!_wheel.active){[_owner setObject:@(C_TOOL) forKey:t];[self beginTool:t];}continue;}
+  if(hit==B_UP||hit==B_ZR){if(!_wheel.active){[_owner setObject:@(C_TOOL) forKey:t];[self beginTool:t button:hit];}continue;}
   if(hit>=0){if(hit==B_R)[self requestChatText];if(hit==B_B)[self cancelTool];[_owner setObject:@(C_BTN|((uint64_t)hit<<8)) forKey:t];continue;}
   if(!_camera&&distance(p,[self buttonCenter:B_RS])<=[self radius:B_RS]*1.15){_camera=t;_cameraNow=p;[_owner setObject:@(C_CAMERA) forKey:t];continue;}
   if(!_stick&&distance(p,self.stickHome)<=self.stickR*1.15){_stick=t;_stickNow=p;[_owner setObject:@(C_STICK) forKey:t];continue;}
@@ -248,7 +248,7 @@ static __weak DmGamepad *g_view;
 - (void)refresh{
  [CATransaction begin];[CATransaction setDisableActions:YES];
  for(int b=0;b<B_N;b++)if(_key[b]){
-  BOOL on=(_btnBits&(1ull<<inputButton(b)))!=0;if(b==B_UP&&_wheel.active)on=YES;if(b==B_RS)on=_camera!=nil;
+  BOOL on=(_btnBits&(1ull<<inputButton(b)))!=0;if(b==_wheelButton&&_wheel.active)on=YES;if(b==B_RS)on=_camera!=nil;
   _key[b].fillColor=[UIColor colorWithWhite:on?1:0 alpha:on?.30:(b>=B_LEFT&&b<=B_DOWN?.10:.15)].CGColor;
   _key[b].strokeColor=[UIColor colorWithRed:.92 green:.87 blue:.71 alpha:b>=B_LEFT&&b<=B_DOWN?.44:.60].CGColor;
   _glyph[b].strokeColor=[UIColor colorWithWhite:on?0:1 alpha:on?.8:.8].CGColor;
