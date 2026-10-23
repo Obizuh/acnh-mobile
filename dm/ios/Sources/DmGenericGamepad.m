@@ -21,6 +21,7 @@
 #include "dm_input.h"
 #include "front.h"
 #include "game_profile.h"
+#import "PadCustomization.h"
 
 enum { B_A = 0, B_B, B_X, B_Y, B_LS, B_RS, B_L, B_R, B_ZL, B_ZR, B_PLUS, B_MINUS, B_LEFT, B_UP, B_RIGHT, B_DOWN, B_N };
 enum { C_NONE = 0, C_STICK, C_DPAD, C_FACE, C_BTN, C_SWAP, C_GAME };   // which control a touch holds; C_GAME: none, the touch goes to the game's touch screen (finger slot << 8)
@@ -91,7 +92,7 @@ static const CGFloat
 static const int k_btns[] = {B_ZL, B_L, B_ZR, B_R, B_MINUS, B_PLUS, B_LS, B_RS};   // keys locked at touch-down (L3 / R3 only in the 3D layout)
 static NSString *const k_layout_key = @"DmPadLayout";   // NSUserDefaults: 1 = 3D, 0 = 2D
 
-@interface DmGenericGamepad : UIView
+@interface DmGenericGamepad : UIView<ACNHEditablePad>
 @end
 static __weak DmGenericGamepad *g_view;
 
@@ -147,13 +148,15 @@ static BOOL fullOnly(int b) { return b == B_LS || b == B_RS || b >= B_LEFT; }   
         }
         _swap = shape(_controls); _swapLabel = label(_swap, @"");
         NSNumber *saved = [NSUserDefaults.standardUserDefaults objectForKey:k_layout_key];
-        _full = saved ? saved.boolValue : DM_GAME_PAD_FULL;
+        _full = acnh_pad_custom(@"generic") ? YES : saved ? saved.boolValue : DM_GAME_PAD_FULL;
         [self applyLayout];
+        if(!acnh_pad_editing()){
         NSNotificationCenter *nc = NSNotificationCenter.defaultCenter;
         [nc addObserver:self selector:@selector(padsChanged) name:GCControllerDidConnectNotification object:nil];
         [nc addObserver:self selector:@selector(padsChanged) name:GCControllerDidDisconnectNotification object:nil];
         [self padsChanged];
         motion_start();
+        }
     }
     return self;
 }
@@ -179,24 +182,28 @@ static CGPoint side(CGRect s, int right, CGFloat dx, CGFloat y) { return CGPoint
 - (CGPoint)faceCenter { CGRect s = self.corner; CGFloat u = self.u; return side(s, 1, K_FACE_X * u, CGRectGetMaxY(s) - K_PAD_Y * u); }
 - (CGFloat)faceGap { return K_FACE_GAP * self.u; }
 - (CGFloat)faceR { return K_FACE_R * self.u; }
-- (CGPoint)facePos:(int)b { CGPoint c = self.faceCenter; CGFloat g = self.faceGap;
+- (CGPoint)defaultFacePos:(int)b { CGPoint c = self.faceCenter; CGFloat g = self.faceGap;
     switch (b) { case B_A: return CGPointMake(c.x + g, c.y); case B_B: return CGPointMake(c.x, c.y + g); case B_X: return CGPointMake(c.x, c.y - g); default: return CGPointMake(c.x - g, c.y); } }
-- (CGPoint)stickHome { CGRect s = self.corner; return side(s, 0, K_STICK_X * self.u, CGRectGetMaxY(s) - K_PAD_Y * self.u); }   // the left stick's ring centre
+- (CGFloat)faceRFor:(int)b{return self.faceR*acnh_pad_scale(@"generic",[NSString stringWithFormat:@"button.%d",b]);}
+- (CGPoint)facePos:(int)b{return acnh_pad_point(@"generic",[NSString stringWithFormat:@"button.%d",b],[self defaultFacePos:b],self,[self faceRFor:b]);}
+- (CGPoint)stickHome { CGRect s = self.corner; return acnh_pad_point(@"generic",@"stick",side(s, 0, K_STICK_X * self.u, CGRectGetMaxY(s) - K_PAD_Y * self.u),self,[self stickR:0]); }   // the left stick's ring centre
 - (CGPoint)stickCentre:(int)i { return i ? _rCentre : self.stickHome; }
-- (CGFloat)stickR:(int)i { return (i ? K_RSTICK_R : K_STICK_R) * self.u; }
+- (CGFloat)stickR:(int)i { return (i ? K_RSTICK_R : K_STICK_R) * self.u * (i?1:acnh_pad_scale(@"generic",@"stick")); }
 - (BOOL)inRightArea:(CGPoint)p { CGRect b = self.bounds; return p.x >= CGRectGetMaxX(b) - b.size.width * K_RSWIPE; }
-- (CGPoint)dpadCenter { CGRect s = self.corner; CGFloat u = self.u; return side(s, 0, K_LOW_X * u, CGRectGetMaxY(s) - K_LOW_Y * u); }
-- (CGFloat)dpadR { return K_DPAD_R * self.u; }
+- (CGPoint)dpadCenter { CGRect s = self.corner; CGFloat u = self.u; return acnh_pad_point(@"generic",@"dpad",side(s, 0, K_LOW_X * u, CGRectGetMaxY(s) - K_LOW_Y * u),self,self.dpadR); }
+- (CGFloat)dpadR { return K_DPAD_R * self.u*acnh_pad_scale(@"generic",@"dpad"); }
 static BOOL isDrop(int b) { return b == B_ZL || b == B_L || b == B_ZR || b == B_R; }
 static BOOL isClick(int b) { return b == B_LS || b == B_RS; }
 - (CGPoint)dropCenter:(int)b { CGRect s = self.safe; CGFloat u = self.u; BOOL z = b == B_ZL || b == B_ZR;
-    return side(s, b == B_ZR || b == B_R, (z ? K_ZL_X : K_L_X) * u, CGRectGetMinY(s) + (z ? K_ZL_Y : K_L_Y) * u); }
-- (CGFloat)dropR:(int)b { return (b == B_ZL || b == B_ZR ? K_ZL_R : K_L_R) * self.u; }
-- (CGPoint)clickCenter:(int)b { CGRect s = self.safe; CGFloat u = self.u; return side(s, b == B_RS, K_CLICK_X * u, CGRectGetMinY(s) + K_ZL_Y * u); }
-- (CGRect)pillRect:(int)b { CGRect s = self.safe; CGFloat u = self.u, w = K_PILL_W * u, h = K_PILL_H * u;
+    return acnh_pad_point(@"generic",[NSString stringWithFormat:@"button.%d",b],side(s, b == B_ZR || b == B_R, (z ? K_ZL_X : K_L_X) * u, CGRectGetMinY(s) + (z ? K_ZL_Y : K_L_Y) * u),self,[self dropR:b]*1.45); }
+- (CGFloat)dropR:(int)b { return (b == B_ZL || b == B_ZR ? K_ZL_R : K_L_R) * self.u*acnh_pad_scale(@"generic",[NSString stringWithFormat:@"button.%d",b]); }
+- (CGPoint)clickCenter:(int)b { CGRect s = self.safe; CGFloat u = self.u; return acnh_pad_point(@"generic",[NSString stringWithFormat:@"button.%d",b],side(s, b == B_RS, K_CLICK_X * u, CGRectGetMinY(s) + K_ZL_Y * u),self,K_CLICK_R*u*acnh_pad_scale(@"generic",[NSString stringWithFormat:@"button.%d",b])); }
+- (CGRect)pillRect:(int)b { CGRect s = self.safe; CGFloat u = self.u, scale=acnh_pad_scale(@"generic",[NSString stringWithFormat:@"button.%d",b]), w = K_PILL_W * u*scale, h = K_PILL_H * u*scale;
     CGPoint c = CGPointMake(CGRectGetMidX(s) + (b == B_PLUS ? K_PILL_DX : -K_PILL_DX) * u, CGRectGetMinY(s) + K_PILL_Y * u);   // − on the left, + on the right
+    c=acnh_pad_point(@"generic",[NSString stringWithFormat:@"button.%d",b],c,self,w/2);
     return CGRectMake(c.x - w / 2, c.y - h / 2, w, h); }
-- (CGPoint)swapCenter { CGRect s = self.safe; return CGPointMake(CGRectGetMidX(s), CGRectGetMinY(s) + K_PILL_Y * self.u); }
+- (CGFloat)swapR{return K_SWAP_R*self.u*acnh_pad_scale(@"generic",@"swap");}
+- (CGPoint)swapCenter { CGRect s = self.safe; return acnh_pad_point(@"generic",@"swap",CGPointMake(CGRectGetMidX(s), CGRectGetMinY(s) + K_PILL_Y * self.u),self,self.swapR); }
 
 static CGFloat dist(CGPoint a, CGPoint b) { return hypot(a.x - b.x, a.y - b.y); }
 - (int)btnAt:(CGPoint)p {   // locked keys (tested on touch-down only, then locked)
@@ -204,15 +211,15 @@ static CGFloat dist(CGPoint a, CGPoint b) { return hypot(a.x - b.x, a.y - b.y); 
     for (int i = 0; i < (int)(sizeof k_btns / sizeof *k_btns); i++) { int b = k_btns[i];
         if (fullOnly(b) && !_full) continue;
         BOOL hit = isDrop(b) ? dist(p, [self dropCenter:b]) <= [self dropR:b] * 1.35
-                 : isClick(b) ? dist(p, [self clickCenter:b]) <= K_CLICK_R * u * 1.35
+                 : isClick(b) ? dist(p, [self clickCenter:b]) <= K_CLICK_R * u * 1.35*acnh_pad_scale(@"generic",[NSString stringWithFormat:@"button.%d",b])
                  : CGRectContainsPoint(CGRectInset([self pillRect:b], -8 * u, -8 * u), p);
         if (hit) return b; }
     return -1;
 }
-- (BOOL)inSwap:(CGPoint)p { return dist(p, self.swapCenter) <= K_SWAP_R * self.u * 1.6; }
+- (BOOL)inSwap:(CGPoint)p { return dist(p, self.swapCenter) <= self.swapR * 1.6; }
 - (uint64_t)faceAt:(CGPoint)p {   // keys under the finger in the diamond (between two keys both count)
-    uint64_t m = 0; CGFloat r = self.faceR * 1.25;
-    for (int b = B_A; b <= B_Y; b++) if (dist(p, [self facePos:b]) <= r) m |= 1ull << b;
+    uint64_t m = 0;
+    for (int b = B_A; b <= B_Y; b++) if (dist(p, [self facePos:b]) <= [self faceRFor:b]*1.25) m |= 1ull << b;
     return m;
 }
 - (uint64_t)dpadAt:(CGPoint)p {   // 8 directions: 45° each, diagonals press two keys; a small centre circle counts as none
@@ -284,7 +291,7 @@ static CGFloat dist(CGPoint a, CGPoint b) { return hypot(a.x - b.x, a.y - b.y); 
         if ([self inSwap:p]) { [_owner setObject:@(C_SWAP) forKey:t]; continue; }
         // diamond, D-pad, left stick: take the one with the smallest distance / grab radius, if it is <= 1
         CGFloat best = 1; int kind = C_NONE, idx = 0;
-        CGFloat f = dist(p, self.faceCenter) / (self.faceGap + self.faceR * 1.6); if (f <= best) { best = f; kind = C_FACE; }
+        CGFloat f = acnh_pad_custom(@"generic") ? ([self faceAt:p]?0:2) : dist(p, self.faceCenter) / (self.faceGap + self.faceR * 1.6); if (f <= best) { best = f; kind = C_FACE; }
         if (_full) { CGFloat d = dist(p, self.dpadCenter) / (self.dpadR * K_DPAD_GRAB); if (d < best) { best = d; kind = C_DPAD; } }
         if (!_stick[0]) { CGFloat s = dist(p, self.stickHome) / ([self stickR:0] * K_STICK_GRAB); if (s < best) { best = s; kind = C_STICK; } }
         if (kind == C_NONE && _full && !_stick[1] && [self inRightArea:p]) { kind = C_STICK; idx = 1; _rCentre = p; }   // the right stick: centred where the touch lands
@@ -360,28 +367,43 @@ static void placeLabel(CATextLayer *t, CGPoint c, CGFloat fs) {
     CGFloat u = self.u;
     [CATransaction begin]; [CATransaction setDisableActions:YES];
     _controls.frame = self.layer.bounds;
-    for (int b = B_A; b <= B_Y; b++) { CGPoint c = [self facePos:b]; setPath(_key[b], circlePath(c, self.faceR)); placeLabel(_label[b], c, 20 * u); }
+    for (int b = B_A; b <= B_Y; b++) { CGPoint c = [self facePos:b]; setPath(_key[b], circlePath(c, [self faceRFor:b])); placeLabel(_label[b], c, 20 * u); }
     for (int i = 0; i < (int)(sizeof k_btns / sizeof *k_btns); i++) { int b = k_btns[i];
         if (isDrop(b)) {
             BOOL right = b == B_ZR || b == B_R; CGPoint c = [self dropCenter:b];
             setPath(_key[b], dropPath(c, [self dropR:b], right ? -M_PI_4 : -3 * M_PI_4, 4 * u)); placeLabel(_label[b], c, 16 * u);   // tip toward the near top corner
         } else if (isClick(b)) {
-            CGPoint c = [self clickCenter:b]; setPath(_key[b], circlePath(c, K_CLICK_R * u)); placeLabel(_label[b], c, 13 * u);
+            CGPoint c = [self clickCenter:b]; setPath(_key[b], circlePath(c, K_CLICK_R * u*acnh_pad_scale(@"generic",[NSString stringWithFormat:@"button.%d",b]))); placeLabel(_label[b], c, 13 * u);
         } else {
             CGRect rc = [self pillRect:b];
             setPath(_key[b], CGPathCreateWithRoundedRect(rc, rc.size.height / 2, rc.size.height / 2, NULL)); placeLabel(_label[b], CGPointMake(CGRectGetMidX(rc), CGRectGetMidY(rc)), 18 * u);
         }
     }
     static const struct { int b; CGFloat angle; } arms[] = {{B_UP, 0}, {B_RIGHT, M_PI_2}, {B_DOWN, M_PI}, {B_LEFT, -M_PI_2}};   // the same arm in 90° steps
-    for (int i = 0; i < 4; i++) setPath(_key[arms[i].b], armPath(self.dpadCenter, self.dpadR, K_ARM_W * u, K_ARM_IN * u, arms[i].angle, 6 * u));
-    CGPoint sc = self.swapCenter; setPath(_swap, circlePath(sc, K_SWAP_R * u)); placeLabel(_swapLabel, sc, 12 * u);
+    CGFloat du=u*acnh_pad_scale(@"generic",@"dpad");
+    for (int i = 0; i < 4; i++) setPath(_key[arms[i].b], armPath(self.dpadCenter, self.dpadR, K_ARM_W * du, K_ARM_IN * du, arms[i].angle, 6 * du));
+    CGPoint sc = self.swapCenter; setPath(_swap, circlePath(sc, self.swapR)); placeLabel(_swapLabel, sc, 12 * u);
     setPath(_ring, circlePath(self.stickHome, [self stickR:0]));
-    CGFloat k = K_KNOB_R * u; _knob.bounds = CGRectMake(0, 0, 2 * k, 2 * k);
+    CGFloat k = K_KNOB_R * u*acnh_pad_scale(@"generic",@"stick"); _knob.bounds = CGRectMake(0, 0, 2 * k, 2 * k);
     setPath(_knob, circlePath(CGPointMake(k, k), k));
     CAShapeLayer *in = (CAShapeLayer *)_knob.sublayers.firstObject; CGPathRef ip = circlePath(CGPointMake(k, k), k * 0.62);
     in.frame = _knob.bounds; in.path = ip; CGPathRelease(ip);
     [CATransaction commit];
     [self refresh];
+}
+- (NSArray<NSDictionary *> *)acnhEditableControls{
+ NSMutableArray *out=[NSMutableArray array];NSArray *names=@[@"A",@"B",@"X",@"Y",@"L3",@"R3",@"L",@"R",@"ZL",@"ZR",@"+",@"−"];
+ for(int b=0;b<=B_MINUS;b++){
+  CGPoint c;CGFloat r;
+  if(b<=B_Y){c=[self facePos:b];r=[self faceRFor:b];}
+  else if(isDrop(b)){c=[self dropCenter:b];r=[self dropR:b]*1.45;}
+  else if(isClick(b)){c=[self clickCenter:b];r=K_CLICK_R*self.u*acnh_pad_scale(@"generic",[NSString stringWithFormat:@"button.%d",b]);}
+  else{CGRect rc=[self pillRect:b];c=CGPointMake(CGRectGetMidX(rc),CGRectGetMidY(rc));r=rc.size.width/2;}
+  [out addObject:acnh_pad_control([NSString stringWithFormat:@"button.%d",b],names[b],c,r)];
+ }
+ [out addObject:acnh_pad_control(@"stick",@"移动摇杆",self.stickHome,[self stickR:0])];
+ [out addObject:acnh_pad_control(@"dpad",@"方向键",self.dpadCenter,self.dpadR)];
+ [out addObject:acnh_pad_control(@"swap",@"2D / 3D",self.swapCenter,self.swapR)];return out;
 }
 - (void)safeAreaInsetsDidChange { [super safeAreaInsetsDidChange]; [self setNeedsLayout]; }
 - (void)refresh {   // pressed state → fill, sticks → knob position

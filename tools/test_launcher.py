@@ -10,12 +10,22 @@ class LauncherTests(unittest.TestCase):
     def test_acnh_hides_unimplemented_fps_and_scale(self):
         with tempfile.TemporaryDirectory() as t:
             d=settings.build('01006F8002326000',t,Path(t)/'missing.nacp')
-            self.assertEqual({s['env'] for s in d['settings']},{'DM_OPMODE','DM_SHOW_FPS','DM_METAL_HUD','ACNH_CONTROLLER_LAYOUT'})
+            self.assertEqual({s['env'] for s in d['settings']},{'DM_OPMODE','DM_SHOW_FPS','DM_METAL_HUD','ACNH_CONTROLLER_LAYOUT','ACNH_AUDIO_IGNORE_SILENT','ACNH_CUSTOM_BASE'})
+    def test_custom_template_choices(self):
+        with tempfile.TemporaryDirectory() as t:
+            row=next(s for s in settings.build('01006F8002326000',t,Path(t)/'missing.nacp')['settings'] if s['env']=='ACNH_CUSTOM_BASE')
+            self.assertEqual(row['default'],'acnh')
+            self.assertEqual(row['options'],[['generic','Generic'],['acnh','Dedicated']])
+    def test_silent_mode_audio_is_opt_in(self):
+        with tempfile.TemporaryDirectory() as t:
+            row=next(s for s in settings.build('01006F8002326000',t,Path(t)/'missing.nacp')['settings'] if s['env']=='ACNH_AUDIO_IGNORE_SILENT')
+            self.assertEqual(row['kind'],'toggle')
+            self.assertEqual(row['default'],'0')
     def test_controller_default_preserves_acnh_and_offers_official(self):
         with tempfile.TemporaryDirectory() as t:
             row=next(s for s in settings.build('01006F8002326000',t,Path(t)/'missing.nacp')['settings'] if s['env']=='ACNH_CONTROLLER_LAYOUT')
             self.assertEqual(row['default'],'acnh')
-            self.assertEqual(row['options'],[['generic','Generic'],['acnh','Dedicated']])
+            self.assertEqual(row['options'],[['generic','Generic'],['acnh','Dedicated'],['custom','Custom']])
     def test_languages_only_from_control_and_build_default(self):
         with tempfile.TemporaryDirectory() as t:
             p=Path(t)/'control.nacp';raw=bytearray(0x3030)
