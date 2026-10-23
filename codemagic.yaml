@@ -38,7 +38,7 @@ workflows:
           curl -fL -o upd303.zip "$ACNH_ASSET_BASE/work/acnh303.zip"
           curl -fL -o "$HOME/.switch/prod.keys" "$ACNH_ASSET_BASE/work/keys/prod_hactool.keys"
           curl -fL -o font.ttf "$ACNH_ASSET_BASE/work/fonts/NotoSansSC.ttf"
-          curl -fL -o shell.ipa "https://github.com/huajiaoshu520/acnh-mobile/releases/download/v0.3.6/ACNHMobile-iOS26-v0.3.6-build8-shell-unsigned.ipa"
+          curl -fL -o shell.ipa "https://github.com/huajiaoshu520/acnh-mobile/releases/download/v0.3.7/ACNHMobile-iOS26-v0.3.7-build9-shell-unsigned.ipa"
           unzip -o base.zip -d extract
           unzip -o upd303.zip -d extract
           find extract -name "*.nsp" -exec mv {} game/ \;
