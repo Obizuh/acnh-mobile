@@ -1,6 +1,6 @@
 # ACNH Mobile
 
-**0.3.15 · build 17 — official Metal 4 edition, iOS 26+.**
+**0.3.16 · build 18 — official Metal 4 edition, iOS 26+.**
 
 A native compatibility runtime for Animal Crossing: New Horizons 3.0.3. The runtime and shader translation sources are based on [NXNative](https://github.com/seedds/nxnative) commit `e72a06510e6dfff4a77c49fd205a82e21cad0786`.
 
@@ -8,7 +8,7 @@ This edition uses the official Metal 4 replay path and matching shader chain. It
 
 [简体中文](README.zh-CN.md) · [Shell guide](docs/SHELL.md) · [Build guide](docs/BUILD.md)
 
-This build integrates upstream shader precision, geometry clip-distance capture and generated-chain-table handling. It retains map alpha testing and restores compatible optional tile-fetch variants. Existing .data packs remain compatible; rebuild shaders for the new chain. See [release notes](docs/RELEASE-v0.3.15.zh-CN.md).
+This build updates upstream shader input stamps and tile-fetch variants, adds Mac controller players, fullscreen refresh-rate matching and Mac-only development builds, and retains map alpha testing and existing mobile controls. Existing .data remains compatible. See [release notes](docs/RELEASE-v0.3.16.zh-CN.md).
 
 ## Downloads
 

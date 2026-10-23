@@ -13,6 +13,30 @@ class Shaders(unittest.TestCase):
  def test_precise_nan_intrinsics(self):
   self.assertEqual(ns['precise']('fast::max(a,b); fast::min(a,b); fast::clamp(a,b,c); fast::normalize(a);'),
                    'precise::max(a,b); precise::min(a,b); precise::clamp(a,b,c); fast::normalize(a);')
+ def test_fetch_integer_entry_and_empty_parameters(self):
+  src="""#include <metal_stdlib>
+using namespace metal;
+struct main0_out
+{
+ float4 m_0 [[color(0)]];
+};
+fragment main0_out main0()
+{
+    main0_out out = {};
+    out.m_0 = float4(1);
+    return out;
+}
+struct main0_out_u
+{
+ uint4 m_0 [[color(0)]];
+};
+fragment main0_out_u main0_u() { return main0_out_u{uint4(1)}; }
+"""
+  variant,meta=dmsh_fetch.variant(src,[],om_only_ok=True)
+  self.assertTrue(variant,meta)
+  self.assertNotIn('main0_u',variant)
+  self.assertNotIn('main0(,',variant)
+  self.assertIn('main0(float4 fb0',variant)
  def test_capture_clip_distance(self):
   for decl in ('float clip[8] [[clip_distance]];', 'float clip [[clip_distance]] [8];'):
    src='struct main0_out {\nfloat4 p [[position]];\n'+decl+'\nfloat clip0 [[user(clip0)]];\n};\nvertex main0_out main0(uint v [[vertex_id]]) {main0_out out; return out;}'

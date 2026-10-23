@@ -20,11 +20,17 @@ class Tables(unittest.TestCase):
         (self.profile / 'shader_map.tsv').write_text('x.bin\t0\tfragment\tfixture\t/source\n')
         (self.mac / 'fixture_b.metallib').write_bytes(b'fixture')
         (self.mac / 'fixture_b.json').write_text('{"chain":"'+self.chain+'"}')
+        self.digest = 'aaaaaaaaaaaa'
+        cm=patch.object(s,'profile_inputs',return_value=self.digest);cm.start();self.addCleanup(cm.stop)
+        self.ios.mkdir(parents=True)
+        for directory in (self.mac,self.ios/('b-'+self.chain)):
+            directory.mkdir(parents=True,exist_ok=True)
+            (directory/'inputs.tsv').write_text('game\t'+s.TITLE+'\ninputs\t'+self.digest+'\n')
         self.ran = []
 
     def generate(self, cmd, **kwargs):
         self.ran.append(Path(cmd[1]).name)
-        Path(cmd[-1]).write_text('# chain b-' + self.chain + '\n')
+        Path(cmd[-1]).write_text('# chain b-' + self.chain + ' inputs ' + self.digest + ' timestamp\n')
 
     def test_missing_then_current(self):
         with patch.object(s.subprocess, 'run', self.generate):
@@ -34,7 +40,7 @@ class Tables(unittest.TestCase):
             self.assertEqual(len(self.ran), 2)
 
     def test_only_stale_regenerated(self):
-        (self.profile / 'c1_full.tsv').write_text('# chain b-' + self.chain + '\n')
+        (self.profile / 'c1_full.tsv').write_text('# chain b-' + self.chain + ' inputs ' + self.digest + ' timestamp\n')
         (self.profile / 'cb_extent.tsv').write_text('# chain b-old\n')
         with patch.object(s.subprocess, 'run', self.generate):
             s.ensure_tables(self.root, self.ios, self.chain)
@@ -47,6 +53,8 @@ class Tables(unittest.TestCase):
 
     def test_explicit_mac_path(self):
         self.ios = self.root / 'elsewhere/ios'
+        lib=self.ios/('b-'+self.chain);lib.mkdir(parents=True)
+        (lib/'inputs.tsv').write_text('game\t'+s.TITLE+'\ninputs\t'+self.digest+'\n')
         with patch.object(s.subprocess, 'run', self.generate):
             s.ensure_tables(self.root, self.ios, self.chain, self.mac.parent)
         self.assertEqual(len(self.ran), 2)

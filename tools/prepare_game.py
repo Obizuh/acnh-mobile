@@ -41,10 +41,10 @@ def cache_key(family):
             if p.is_file() and p.name not in ('c1_full.tsv','cb_extent.tsv') and p.suffix in ('.py','.cs','.csproj','.tsv','.h','.lock') and not any(x in ('obj','bin','__pycache__') for x in p.parts):h.update(p.read_bytes())
     return h.hexdigest()[:20]
 
-def prepare(game,keys,work,run,log):
+def prepare(game,keys,work,run,log,platform='ios'):
     u,game,keys,family=raw_plan(game,keys)
     cache=Path(work)/'prepared'/cache_key(family);cache.mkdir(parents=True,exist_ok=True)
-    repo=cache/'source';manifest=cache/'prepared.json'
+    repo=cache/'source';manifest=cache/('prepared-mac.json' if platform=='mac' else 'prepared.json')
     if manifest.is_file():
         data=json.loads(manifest.read_text())
         from shader_tables import chain_header,ensure_tables
@@ -77,8 +77,8 @@ def prepare(game,keys,work,run,log):
         u.run([sys.executable,repo/'dm/gfx/tools/dmsh_chain.py',flag],logs/('chain'+flag+'.log'),env=env)
     sh=cache/'shader'
     key=u.split_shaders(sys.executable,repo,[ex/'RomFS'],[ex/'ExeFS/main'],sh/'pkg',env,logs,g)
-    ios=u.build_shaders(sys.executable,repo,sh,xlate,env,logs,g,pkg_key=key)
-    chain=u.chain_of(g)   # build_shaders also generates/validates both local tables, even on reuse
+    ios=u.build_shaders(sys.executable,repo,sh,xlate,env,logs,g,pkg_key=key,mac=platform=='mac')
+    chain=u.chain_of(repo)   # build_shaders also generates/validates both local tables, even on reuse
     data=dict(patched=patched,romfs=ex/'RomFS',shaders=ios,build_root=repo,chain=chain)
     # Written only after every stage succeeds; later IPA construction validates the cache again.
     manifest.write_text(json.dumps({k:str(v) for k,v in data.items()}))

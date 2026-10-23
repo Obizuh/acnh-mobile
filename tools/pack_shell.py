@@ -58,7 +58,7 @@ def main():
         for name in ['shader_map.tsv','pso_manifest.tsv','c1_full.tsv','cb_extent.tsv']: shutil.copyfile(profile/name,dm/name)
         target=app/'msl'/('b-'+chain); target.mkdir(parents=True)
         for p in cache.iterdir():
-            if p.is_file() and p.suffix in {'.metallib','.json'}: shutil.copyfile(p,target/p.name)
+            if p.is_file() and (p.suffix in {'.metallib','.json'} or p.name=='inputs.tsv'): shutil.copyfile(p,target/p.name)
         (dm/'font').mkdir(); shutil.copyfile(a.font,dm/'font/standard.ttf')
         import subprocess,sys
         info=plistlib.loads((app/'Info.plist').read_bytes())

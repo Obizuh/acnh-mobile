@@ -25,6 +25,11 @@ class PrepareTests(unittest.TestCase):
         with patch.object(d.shutil,'which',return_value=None),patch.object(d,'available',return_value=False),patch.object(d.subprocess,'run',side_effect=AssertionError('unexpected install')):
             plan=d.ensure(raw=True,plan=True)
             self.assertTrue(plan['dotnet10']);self.assertIn('spirv-cross',plan['homebrew']);self.assertIn('fonttools',plan['python'])
+    def test_mac_dependency_plan_does_not_require_xcodegen(self):
+        with patch.object(d.shutil,'which',return_value=None),patch.object(d,'available',return_value=False):
+            plan=d.ensure(raw=True,plan=True,mac=True)
+            self.assertNotIn('xcodegen',plan['homebrew'])
+            self.assertIn('spirv-cross',plan['homebrew'])
     def test_cancel_does_not_become_current_directory(self):
         import subprocess
         with patch.object(p.subprocess,'run',return_value=subprocess.CompletedProcess([],130,'','')):

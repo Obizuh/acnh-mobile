@@ -33,3 +33,9 @@ The full IPA is private and contains game-derived modules and shaders. Do not pu
 The v0.3.14 map alpha-test build uses chain `3eca67439950`. Regenerate matching shaders and both constant-buffer tables, then rebuild the runtime. External `.data` is unchanged.
 
 v0.3.15 uses chain `665e6ad0479d`. Generated `c1_full.tsv` and `cb_extent.tsv` are no longer committed. Raw preparation creates them automatically, including on shader-cache reuse. Prepared-input builds look for matching Mac outputs under the iOS cache parent’s `cache/` or `mac/`, or accept `--mac-shaders <parent-of-b-chain>`. Missing/stale tables are regenerated; without Mac outputs, the build stops with a preparation instruction. Generated tables are excluded from reuse keys.
+
+### v0.3.16 Mac development mode
+
+The one chain header is `dm/gfx/nvn/dmsh_chain.h` (currently `fa64eaf62c3e`). A full shader build creates `inputs.tsv` and both matching tables. Rebuild older caches; never copy an old stamp to new outputs.
+
+`./setup.sh mac --patched <prepared> --romfs <RomFS> --shaders <Mac-cache-parent> --font <ttf> --work <work>` builds the Mac host and writes `<work>/run-mac.command`; add `--run` to launch it. Saves stay under `<work>/run/save`. Raw preparation is available with `python3 tools/one_click.py ipa --platform mac --game-dir <NSP-directory> --keys <prod.keys>`. Mac mode creates no IPA, iOS project or Data package; the default remains iOS.

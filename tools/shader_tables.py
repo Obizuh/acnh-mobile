@@ -14,11 +14,28 @@ TITLE = '01006F8002326000'
 TABLES = (('c1_full.tsv', 'c1_guard.py'), ('cb_extent.tsv', 'cb_extent.py'))
 
 
+def profile_inputs(root):
+    env = dict(os.environ, DM_GAME=TITLE)
+    for key in ('DM_GAMES_DIR', 'DM_GAMES_FIRST'):
+        env.pop(key, None)
+    return subprocess.check_output([sys.executable, str(Path(root) / 'dm/gfx/tools/dmsh_chain.py'), '--inputs'], env=env, text=True).strip()
+
+
+def read_stamp(cache):
+    p = Path(cache) / 'inputs.tsv'
+    if not p.is_file():
+        return {}
+    return dict(line.split('\t', 1) for line in p.read_text().splitlines() if '\t' in line and not line.startswith('#'))
+
+
 def validate_cache(root, shaders, chain):
     profile = Path(root) / 'dm/games' / TITLE
     wanted = {c[3] for line in (profile / 'shader_map.tsv').read_text().splitlines()
               if len(c := line.split('\t')) > 4 and c[0].endswith('.bin') and c[2] != 'geometry'}
     cache = Path(shaders) / ('b-' + chain)
+    stamp = read_stamp(cache)
+    if stamp.get('game') != TITLE or stamp.get('inputs') != profile_inputs(root):
+        raise ValueError('着色器完整构建标记缺失、过期或属于其他游戏，请重新生成：' + str(cache))
     libs = list(cache.glob('*_b.metallib'))
     if not wanted or wanted - {p.name[:-11] for p in libs}:
         raise ValueError('着色器构建尚未完成或缓存不完整：' + str(cache))
@@ -36,7 +53,7 @@ def chain_header(root):
     want = subprocess.check_output([sys.executable, str(tool)], env=env, text=True).strip()
     if not re.fullmatch(r'[0-9a-f]{12}', want):
         raise ValueError('Invalid shader chain: ' + want)
-    header = root / 'dm/games' / TITLE / 'dmsh_chain.h'
+    header = root / 'dm/gfx/nvn/dmsh_chain.h'
     if not header.is_file() or f'#define DMSH_CHAIN "{want}"' not in header.read_text():
         subprocess.run([sys.executable, str(tool), '--header'], env=env, check=True)
     return want
@@ -45,11 +62,16 @@ def chain_header(root):
 def ensure_tables(root, ios, chain, mac=None):
     root, ios = Path(root), Path(ios)
     profile = root / 'dm/games' / TITLE
+    stamp = read_stamp(ios / ('b-' + chain))
+    digest = profile_inputs(root)
+    if stamp.get('game') != TITLE or stamp.get('inputs') != digest:
+        raise ValueError('着色器缓存没有匹配当前配置的完整构建标记，请重新生成。')
+    expected = ['#', 'chain', 'b-' + chain, 'inputs', digest]
     missing = []
     for name, tool in TABLES:
         p = profile / name
         head = p.read_text().partition('\n')[0] if p.is_file() else ''
-        if head.split()[:3] != ['#', 'chain', 'b-' + chain]:
+        if head.split()[:5] != expected:
             missing.append((p, tool))
     if not missing:
         return
@@ -63,5 +85,5 @@ def ensure_tables(root, ios, chain, mac=None):
     validate_cache(root, outputs.parent, chain)
     for p, tool in missing:
         subprocess.run([sys.executable, str(root / 'dm/gfx/tools' / tool), str(outputs), str(p)], check=True)
-        if p.read_text().partition('\n')[0].split()[:3] != ['#', 'chain', 'b-' + chain]:
+        if p.read_text().partition('\n')[0].split()[:5] != expected:
             raise ValueError('Generated shader table has the wrong chain: ' + p.name)
