@@ -8,7 +8,7 @@
 
 ## 下载与使用
 
-[Releases](https://github.com/huajiaoshu520/acnh-mobile/releases) 提供未签名的**无游戏空壳 IPA**、同内容的构建输入 ZIP、审计报告和 SHA256 校验文件。
+[Releases](https://github.com/huajiaoshu520/acnh-mobile/releases) 提供未签名的**无游戏空壳 IPA**、审计报告和 SHA256 校验文件。
 
 空壳不含游戏程序、游戏数据、转换后的游戏着色器、key、存档或字体。项目图标是唯一的识别图片。空壳不能直接游玩，仅导入 `.data` 也无法启动；需要在电脑上使用自己的游戏程序、官方配套着色器和字体生成私人完整 IPA，再整包签名。
 
@@ -27,3 +27,7 @@
 已完成 Release 编译、空壳无游戏内容与版本校验，以及使用自备文件补包的本机验证；Mac 启动到机场，数据读取、存档、文字、amiibo 和照片相关回归通过。完整手机游戏流程、手柄、输入法以及相册/NFC 权限仍需真机验证，不承诺解决所有发热或画面问题。
 
 GitHub Actions 在 main 运行 **Build game-free iOS shell**，勾选 publish 可在构建和审计通过后创建对应版本的 Release；不勾选只生成构建产物。已有 Release 不覆盖。本次发布 iOS 26 官方 Metal 4 空壳，历史发布保留。
+
+## 本地一键入口
+
+Mac 用户可双击项目根目录的「一键生成完整IPA.command」「一键生成IPA和数据包.command」。选择自备游戏目录与 prod.keys，自动补齐可安装依赖，完成提取、程序改写和官方着色器转换；也支持复用已有匹配输入。版本自动读取项目配置。详见 [一键构建说明](docs/ONE-CLICK.zh-CN.md)。

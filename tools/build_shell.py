@@ -39,8 +39,9 @@ def main():
     ap.add_argument('--work', type=Path, required=True)
     a=ap.parse_args(); a.output=a.output.resolve(); a.work=a.work.resolve()
     if a.work.exists(): raise ValueError('Choose a new empty work path')
+    if a.output.exists() and any(a.output.iterdir()): raise ValueError('Choose an empty output directory; stale release assets are not allowed')
     a.work.mkdir(parents=True)
-    tree=a.work/'tree'; shutil.copytree(ROOT,tree,ignore=shutil.ignore_patterns('.git','.venv','local','outputs','__pycache__','Gen','gen','bin','obj','build','*.xcodeproj','*.xcworkspace','*.dSYM'))
+    tree=a.work/'tree'; shutil.copytree(ROOT,tree,ignore=shutil.ignore_patterns('.git','.venv','local','outputs','__pycache__','Gen','gen','bin','obj','build','*.xcodeproj','*.xcworkspace','*.dSYM','*.local.json'))
     ios=tree/'dm/ios'; gen=ios/'Gen'; (gen/'dm').mkdir(parents=True); (gen/'msl').mkdir()
     e=dict(os.environ,GAME='01006F8002326000',DM_BUNDLE_ID='org.acnhmobile.experimental',DM_DISPLAY_NAME='ACNH Mobile',DM_TEAM_ID='0000000000',DM_APP_CATEGORY='public.app-category.games')
     version=json.loads((ROOT/'config/version.json').read_text())
@@ -72,15 +73,12 @@ def main():
     # Empty msl is intentional. Xcode can omit empty resource directories.
     files=audit_app(stage)
     a.output.mkdir(parents=True,exist_ok=True)
-    archive=a.output/'ACNHMobile-shell-build-input.zip'
-    with zipfile.ZipFile(archive,'w',zipfile.ZIP_DEFLATED) as z:
+    ipa=a.output/('ACNHMobile-iOS26-v'+version['version']+'-build'+str(version['build'])+'-shell-unsigned.ipa')
+    with zipfile.ZipFile(ipa,'w',zipfile.ZIP_DEFLATED) as z:
         for p in sorted(stage.rglob('*')):
             if p.is_file(): z.write(p,'Payload/ACNHMobile.app/'+str(p.relative_to(stage)))
     (a.output/'shell-audit.json').write_text(json.dumps(dict(metadata,files=files),indent=2)+'\n')
-    (a.output/'SHA256SUMS.txt').write_text(hashlib.sha256(archive.read_bytes()).hexdigest()+'  '+archive.name+'\n')
-    ipa=a.output/('ACNHMobile-iOS26-v'+version['version']+'-build'+str(version['build'])+'-shell-unsigned.ipa')
-    shutil.copyfile(archive,ipa)
-    (a.output/'SHA256SUMS.txt').write_text(''.join(hashlib.sha256(p.read_bytes()).hexdigest()+'  '+p.name+'\n' for p in [ipa,archive]))
+    (a.output/'SHA256SUMS.txt').write_text(hashlib.sha256(ipa.read_bytes()).hexdigest()+'  '+ipa.name+'\n')
     print(ipa)
 
 if __name__=='__main__': main()
