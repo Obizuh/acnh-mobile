@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Local launchers for private IPA, IPA plus external data, and game-free shell."""
+"""Local launchers for private IPA and IPA plus external data."""
 import argparse,fcntl,hashlib,json,os,platform,plistlib,re,shutil,struct,subprocess,sys,time,uuid,zipfile
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
@@ -171,7 +171,7 @@ def main():
     if python and not os.environ.get('ACNH_DEPENDENCIES_READY') and Path(python).absolute()!=Path(sys.executable).absolute():os.execv(python,[python,str(Path(__file__).resolve()),*sys.argv[1:]])
     if platform.system()!='Darwin' or platform.machine()!='arm64':raise ValueError('需要 Apple Silicon Mac。')
     import build_dependencies
-    raw=a.mode!='shell' and (a.select or a.game_dir is not None or settings.get('input_mode')=='raw' or not (os.environ.get('ACNH_DATA_ROOT') or any(settings.get(k) for k in ('data_root','patched','romfs','shaders'))))
+    raw=(a.select or a.game_dir is not None or settings.get('input_mode')=='raw' or not (os.environ.get('ACNH_DATA_ROOT') or any(settings.get(k) for k in ('data_root','patched','romfs','shaders'))))
     if not a.plan:build_dependencies.ensure(raw=raw)
     output=Path(settings.get('output_root') or ROOT/'outputs').expanduser().resolve()
     work=Path(settings.get('work_root') or ROOT/'work/local-build').expanduser().resolve()
@@ -181,7 +181,7 @@ def main():
         game=a.game_dir or (picker('game') if a.select or not settings.get('game_dir') else Path(settings['game_dir']))
         keys=a.keys or (picker('keys') if a.select or not settings.get('keys') else Path(settings['keys']))
         raw_plan(game,keys)
-    elif a.mode!='shell':data=inputs(settings)
+    else:data=inputs(settings)
     if a.plan:
         print(json.dumps(dict(mode=a.mode,version=version,output=str(output),work=str(work),inputs={k:str(v) for k,v in data.items()},dependencies=build_dependencies.ensure(raw=raw,plan=True),raw=raw),ensure_ascii=False,indent=2));return
     output.mkdir(parents=True,exist_ok=True);work.mkdir(parents=True,exist_ok=True)
@@ -191,20 +191,15 @@ def main():
         job=work/(time.strftime('%Y%m%d-%H%M%S')+'-'+uuid.uuid4().hex[:6]);job.mkdir()
         print('开始构建 '+version['version']+' / 构建 '+str(version['build']),flush=True)
         print('日志：'+str(job/'run.log'),flush=True)
-        kind='shell' if a.mode=='shell' else 'private'
+        kind='private'
         with (job/'run.log').open('w') as log:
             if raw:
                 prepared=prepare(game,keys,work,run,log)
                 settings.update({k:str(v) for k,v in prepared.items()});settings['data_root']=str(game)
                 data=inputs(settings)
-            if kind=='shell':
-                run([sys.executable,ROOT/'tools/build_shell.py','--work',job/'shell-work','--output',job/'shell-output'],log)
-                run([sys.executable,ROOT/'tools/verify_shell.py',job/'shell-output'],log)
-                made=next((job/'shell-output').glob('*.ipa'))
-            else:
-                made=job/'complete.ipa';command=[sys.executable,data['build_root']/'tools/public_setup.py','build']
-                for key in ('patched','romfs','shaders','font'):command+=['--'+key,data[key]]
-                command+=['--work',job/'build-work','--output',made];run(command,log)
+            made=job/'complete.ipa';command=[sys.executable,data['build_root']/'tools/public_setup.py','build']
+            for key in ('patched','romfs','shaders','font'):command+=['--'+key,data[key]]
+            command+=['--work',job/'build-work','--output',made];run(command,log)
             digest=inspect_ipa(made,version,kind)
             if a.mode=='ipa-data':
                 target=output/'ACNHMobile';fingerprint,count=romfs_fingerprint(data['romfs']);marker=target/'.source.json'
@@ -225,16 +220,15 @@ def main():
                 else:
                     print('复用已有数据包，校验中…',flush=True);verify_data(target)
                 print('数据包：'+str(target),flush=True)
-            name='ACNHMobile-'+('shell-' if kind=='shell' else '')+'v'+version['version']+'-build'+str(version['build'])+'-unsigned.ipa'
+            name='ACNHMobile-'+'v'+version['version']+'-build'+str(version['build'])+'-unsigned.ipa'
             dest=output/name
             # Keep a previously successful output recoverable until a verified replacement is ready.
             if dest.exists():trash_file(dest)
             made.rename(dest);dest.with_suffix('.ipa.sha256').write_text(digest+'  '+dest.name+'\n')
-            if kind=='shell':shutil.copy2(job/'shell-output/shell-audit.json',output/'shell-audit.json')
             retain_two(output,dest)
             print('\n完成：'+str(dest),flush=True)
             print('仅保留最近两份 IPA；数据和存档不会清理。',flush=True)
-            print('未签名。完整包需整包签名并配合外置 .data 使用。' if kind=='private' else '这是无游戏空壳，不能直接游玩。',flush=True)
+            print('未签名。完整包需整包签名并配合外置 .data 使用。',flush=True)
 
 if __name__=='__main__':
     code=0
