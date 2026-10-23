@@ -44,10 +44,24 @@ jobs:
           python tools/test_shell.py
           python tools/test_one_click.py
           python tools/test_prepare_game.py
+          python tools/test_album_save.py
           python tools/test_launcher.py
           python tools/test_own_compilers.py
+          python dm/gfx/tools/test_dmsh_alpha.py
+          python dm/gfx/tools/test_upstream_shader.py
+          python tools/test_nsp_chain.py
+          python tools/test_nsp_mac.py
+          python dm/tools/tests/test_patches.py
+          python tools/test_shader_tables.py
+          clang -Wall -Wextra -Werror dm/ios/tests/t_acnh_wheel.c -o "$RUNNER_TEMP/t-acnh-wheel"
+          "$RUNNER_TEMP/t-acnh-wheel"
+          clang -fobjc-arc dm/ios/tests/t_photo_host.m -framework Foundation -o "$RUNNER_TEMP/t-photo-host"
+          "$RUNNER_TEMP/t-photo-host"
           clang -fobjc-arc dm/ios/tests/t_pad_layout.m -framework Foundation -framework CoreGraphics -o "$RUNNER_TEMP/t-pad-layout"
           "$RUNNER_TEMP/t-pad-layout"
+          make -C dm/host/tests GAME=01006F8002326000 build/t_hid build/t_audren_open
+          dm/host/tests/build/t_hid
+          dm/host/tests/build/t_audren_open
       - name: Install project generator
         run: brew install xcodegen
       - name: Build official Metal 4 shell without game files

@@ -6,7 +6,11 @@ ROOT=Path(__file__).resolve().parents[1]
 p=argparse.ArgumentParser(description=__doc__);cmd=p.add_subparsers(dest='cmd',required=True)
 b=cmd.add_parser('build')
 for key in ['patched','romfs','shaders','font','work','output']:b.add_argument('--'+key,type=Path,required=True)
+b.add_argument('--mac-shaders',type=Path,help='Matching Mac shader output parent, used to regenerate local tables')
 b.add_argument('--shell',type=Path,help='Optional matching game-free IPA or shell ZIP from Releases')
+m=cmd.add_parser('mac',help='Build the Mac development host without an IPA')
+for key in ['patched','romfs','shaders','font','work']:m.add_argument('--'+key,type=Path,required=True)
+m.add_argument('--run',action='store_true',help='Open the game after building')
 d=cmd.add_parser('data');d.add_argument('--romfs',type=Path,required=True);d.add_argument('--output',type=Path,required=True)
 cmd.add_parser('check');a=p.parse_args()
 if a.cmd=='check':
@@ -15,9 +19,15 @@ if a.cmd=='check':
  print('Build tools found. Use your own rewritten modules, RomFS and matching official shader cache.');sys.exit(0)
 if a.cmd=='data':
  subprocess.run([sys.executable,str(ROOT/'tools/pack_data.py'),str(a.romfs.resolve()),str(a.output.resolve())],check=True);sys.exit(0)
+if a.cmd=='mac':
+ from mac_build import build
+ build(ROOT,a.patched,a.romfs,a.shaders,a.font,a.work,a.run);sys.exit(0)
 a.patched=a.patched.resolve();a.romfs=a.romfs.resolve();a.shaders=a.shaders.resolve();a.font=a.font.resolve();a.work=a.work.resolve();a.output=a.output.resolve()
-chain=re.search(r'#define DMSH_CHAIN "([0-9a-f]+)"',(ROOT/'dm/games/01006F8002326000/dmsh_chain.h').read_text()).group(1)
+from shader_tables import chain_header,ensure_tables,validate_cache
+chain=chain_header(ROOT)
 assert (a.shaders/('b-'+chain)).is_dir(),'Expected the matching complete official b-'+chain+' directory under --shaders'
+validate_cache(ROOT,a.shaders,chain)
+ensure_tables(ROOT,a.shaders,chain,a.mac_shaders)
 assert a.font.is_file();a.work.mkdir(parents=True,exist_ok=True);a.output.parent.mkdir(parents=True,exist_ok=True)
 if a.shell:
  subprocess.run([sys.executable,str(ROOT/'tools/pack_shell.py'),'--shell',str(a.shell.resolve()),'--patched',str(a.patched),'--shaders',str(a.shaders),'--font',str(a.font),'--output',str(a.output),'--control',str(a.romfs.parent/'control.nacp')],check=True);sys.exit(0)

@@ -22,12 +22,16 @@ def main():
     ap=argparse.ArgumentParser(description=__doc__)
     for name in ['shell','patched','shaders','font','output']:
         ap.add_argument('--'+name,type=Path,required=True)
+    ap.add_argument('--mac-shaders',type=Path,help='Matching Mac shader output parent')
     ap.add_argument("--control",type=Path,help="Optional owned control.nacp for supported game languages")
     a=ap.parse_args(); a.output=a.output.resolve()
     if a.output.exists(): raise ValueError('Output already exists')
     profile=ROOT/'dm/games/01006F8002326000'
     # Check everything before creating a large temporary install package.
-    chain=re.search(r'#define DMSH_CHAIN "([0-9a-f]+)"',(profile/'dmsh_chain.h').read_text()).group(1)
+    from shader_tables import chain_header,ensure_tables,validate_cache
+    chain=chain_header(ROOT)
+    validate_cache(ROOT,a.shaders,chain)
+    ensure_tables(ROOT,a.shaders,chain,a.mac_shaders)
     cache=a.shaders/('b-'+chain)
     libs=list(cache.glob('*_b.metallib'))
     if not libs: raise ValueError('Missing prepared iOS shader libraries: '+str(cache))
@@ -54,7 +58,7 @@ def main():
         for name in ['shader_map.tsv','pso_manifest.tsv','c1_full.tsv','cb_extent.tsv']: shutil.copyfile(profile/name,dm/name)
         target=app/'msl'/('b-'+chain); target.mkdir(parents=True)
         for p in cache.iterdir():
-            if p.is_file() and p.suffix in {'.metallib','.json'}: shutil.copyfile(p,target/p.name)
+            if p.is_file() and (p.suffix in {'.metallib','.json'} or p.name=='inputs.tsv'): shutil.copyfile(p,target/p.name)
         (dm/'font').mkdir(); shutil.copyfile(a.font,dm/'font/standard.ttf')
         import subprocess,sys
         info=plistlib.loads((app/'Info.plist').read_bytes())

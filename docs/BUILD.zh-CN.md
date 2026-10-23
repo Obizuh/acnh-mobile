@@ -49,3 +49,15 @@ python3 tools/audit_release.py .
 只发布本次提供的 `acnh-mobile-source-*.zip`，或在干净源码树中运行检查后打包。`Gen`、构建输出、`.data`、IPA、存档和密钥均必须留在发布包之外。源码检查是白名单与敏感格式检查，不声称完成全流程游戏兼容性验证。
 
 从 v0.3.8 起合入官方计算式几何着色器路径。锁定官方工具的链标识为 `ade9bce36598`，旧版着色器缓存需要重新生成并随完整 IPA 打包；原 `.data` 游戏数据无需重新生成。本机重新构建翻译器并更新私人锁时，以其生成的链和配套宿主为准，勿混用。
+
+地图透明度测试版 v0.3.14 使用链 `3eca67439950`，需重建配套着色器及两张常量保护表，再重新编译宿主；`.data` 不变。
+
+v0.3.15 的链为 `665e6ad0479d`。配套表不再随源码提供；从原始游戏构建会自动生成。使用已有 iOS 着色器时，构建工具先查找同级 `cache/` 或 `mac/` 中同链的 Mac 输出；也可传 `--mac-shaders <包含 b-链标识 的目录>`。缺少或过期的表会重建，且不会因此改变准备缓存的输入指纹。仅有 iOS 缓存而没有配套表和可重建的 Mac 输出时会停止，请重新准备游戏。
+
+### v0.3.16 构建链与 Mac 开发模式
+
+唯一链头移到 `dm/gfx/nvn/dmsh_chain.h`，当前链为 `fa64eaf62c3e`。完整翻译同时生成 `inputs.tsv` 和两张配套表；请不要手工移植旧标记，旧链缓存需重新生成。空壳补包也会包含该标记。
+
+已有改写程序、RomFS、Mac 着色器和字体时，使用原 build 参数中的 `--patched`、`--romfs`、`--shaders`、`--font`、`--work` 调用 `./setup.sh mac`，其中 shaders 为 Mac 缓存父目录；不传 output。完成后双击 work 中的 `run-mac.command`，或加 `--run` 直接启动。Mac 存档和临时文件在该 work 的 run 下，独立于手机。
+
+从原始游戏目录准备时可用 `python3 tools/one_click.py ipa --platform mac --game-dir <游戏目录> --keys <prod.keys>`。这个开发选项不制作 IPA、Xcode iOS 项目或 Data 包；默认不传 platform 时仍按原方式构建 iOS。Mac 着色器可复用同输入 iOS 构建生成的 Mac 缓存；相反方向仍需生成 iOS 库。

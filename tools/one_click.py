@@ -31,9 +31,12 @@ def inputs(settings):
     root=Path(settings.get('build_root') or ROOT);profile=root/'dm/games/01006F8002326000'
     patched=choose([settings.get('patched'),build/'pristine_upstream/patched'],'官方改写程序')
     romfs=choose([settings.get('romfs'),build/'extract/3.0.3/RomFS'],'3.0.3 RomFS')
-    shaders=choose([settings.get('shaders'),build/'upstream_shader/ios'],'官方 iOS 着色器缓存')
+    shaders=choose([settings.get('shaders'),build/('upstream_shader/mac' if settings.get('platform')=='mac' else 'upstream_shader/ios')],'配套着色器缓存')
     font=choose([settings.get('font'),Path('/System/Library/Fonts/Supplemental/Arial Unicode.ttf')],'字体')
-    chain=re.search(r'#define DMSH_CHAIN "([0-9a-f]+)"',(profile/'dmsh_chain.h').read_text()).group(1)
+    from shader_tables import chain_header,ensure_tables,validate_cache
+    chain=chain_header(root)
+    validate_cache(root,shaders,chain)
+    ensure_tables(root,shaders,chain)
     cache=shaders/('b-'+chain)
     if not (romfs/MARKER).is_file():raise ValueError('RomFS 不完整或不是动森。')
     expected={}
@@ -50,7 +53,9 @@ def inputs(settings):
     if not provenance.is_file():raise ValueError('缺少官方改写来源校验记录 build_src.sha256。')
     for line in provenance.read_text().splitlines():
         digest,name=line.split(None,1)
-        if Path(name).name!=name or sha(root/'dm/tools'/name)!=digest:raise ValueError('改写工具已变化，请重新准备程序。')
+        candidate=(root/'dm/tools'/name).resolve()
+        allowed=(candidate.parent==(root/'dm/tools').resolve() and candidate.name in ('patch_nso.py','nso_code.py','nso_asm.py','sdk_patches.py')) or (candidate.name=='patches.py' and candidate.parent.parent==(root/'dm/games').resolve())
+        if not allowed or not candidate.is_file() or sha(candidate)!=digest:raise ValueError('改写工具已变化，请重新准备程序。')
     libs=list(cache.glob('*_b.metallib'))
     wanted={c[3] for line in (profile/'shader_map.tsv').read_text().splitlines() if len(c:=line.split('\t'))>4 and c[0].endswith('.bin') and c[2]!='geometry'}
     if wanted-{p.name[:-11] for p in libs}:raise ValueError('官方着色器缓存不完整：b-'+chain)
@@ -165,14 +170,16 @@ def run(command,log):
         if proc.wait():raise RuntimeError('构建失败，请查看日志。')
 
 def main():
-    ap=argparse.ArgumentParser(description=__doc__);ap.add_argument('mode',choices=['ipa','ipa-data']);ap.add_argument('--plan',action='store_true');ap.add_argument('--select',action='store_true',help='选择游戏目录和 prod.keys');ap.add_argument('--game-dir',type=Path);ap.add_argument('--keys',type=Path);ap.add_argument('--config',type=Path,default=CONFIG);a=ap.parse_args()
+    ap=argparse.ArgumentParser(description=__doc__);ap.add_argument('mode',choices=['ipa','ipa-data']);ap.add_argument('--platform',choices=['ios','mac'],default='ios',help='Mac is a development-only build with no IPA');ap.add_argument('--plan',action='store_true');ap.add_argument('--select',action='store_true',help='选择游戏目录和 prod.keys');ap.add_argument('--game-dir',type=Path);ap.add_argument('--keys',type=Path);ap.add_argument('--config',type=Path,default=CONFIG);a=ap.parse_args()
     settings=json.loads(a.config.read_text()) if a.config.is_file() else {}
+    settings['platform']=a.platform
+    if a.platform=='mac' and a.mode!='ipa':raise ValueError('Mac development mode does not build an IPA or Data package.')
     python=settings.get('python')
     if python and not os.environ.get('ACNH_DEPENDENCIES_READY') and Path(python).absolute()!=Path(sys.executable).absolute():os.execv(python,[python,str(Path(__file__).resolve()),*sys.argv[1:]])
     if platform.system()!='Darwin' or platform.machine()!='arm64':raise ValueError('需要 Apple Silicon Mac。')
     import build_dependencies
     raw=(a.select or a.game_dir is not None or settings.get('input_mode')=='raw' or not (os.environ.get('ACNH_DATA_ROOT') or any(settings.get(k) for k in ('data_root','patched','romfs','shaders'))))
-    if not a.plan:build_dependencies.ensure(raw=raw)
+    if not a.plan:build_dependencies.ensure(raw=raw,mac=a.platform=='mac')
     output=Path(settings.get('output_root') or ROOT/'outputs').expanduser().resolve()
     work=Path(settings.get('work_root') or ROOT/'work/local-build').expanduser().resolve()
     version=json.loads((ROOT/'config/version.json').read_text());data={}
@@ -183,7 +190,7 @@ def main():
         raw_plan(game,keys)
     else:data=inputs(settings)
     if a.plan:
-        print(json.dumps(dict(mode=a.mode,version=version,output=str(output),work=str(work),inputs={k:str(v) for k,v in data.items()},dependencies=build_dependencies.ensure(raw=raw,plan=True),raw=raw),ensure_ascii=False,indent=2));return
+        print(json.dumps(dict(mode=a.mode,version=version,output=str(output),work=str(work),inputs={k:str(v) for k,v in data.items()},dependencies=build_dependencies.ensure(raw=raw,plan=True,mac=a.platform=='mac'),raw=raw),ensure_ascii=False,indent=2));return
     output.mkdir(parents=True,exist_ok=True);work.mkdir(parents=True,exist_ok=True)
     with (work/'build.lock').open('w') as lock:
         try:fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
@@ -194,9 +201,14 @@ def main():
         kind='private'
         with (job/'run.log').open('w') as log:
             if raw:
-                prepared=prepare(game,keys,work,run,log)
+                prepared=prepare(game,keys,work,run,log,platform=a.platform)
                 settings.update({k:str(v) for k,v in prepared.items()});settings['data_root']=str(game)
                 data=inputs(settings)
+            if a.platform=='mac':
+                command=[sys.executable,data['build_root']/'tools/public_setup.py','mac']
+                for key in ('patched','romfs','shaders','font'):command+=['--'+key,data[key]]
+                command+=['--work',job/'mac-work'];run(command,log)
+                print('Mac 开发构建完成：'+str(job/'mac-work/run-mac.command'),flush=True);return
             made=job/'complete.ipa';command=[sys.executable,data['build_root']/'tools/public_setup.py','build']
             for key in ('patched','romfs','shaders','font'):command+=['--'+key,data[key]]
             command+=['--work',job/'build-work','--output',made];run(command,log)

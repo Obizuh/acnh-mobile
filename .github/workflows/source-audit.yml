@@ -15,3 +15,9 @@ jobs:
       - run: python tools/test_prepare_game.py
       - run: python tools/test_launcher.py
       - run: python tools/test_own_compilers.py
+      - run: python dm/gfx/tools/test_dmsh_alpha.py
+      - run: python dm/gfx/tools/test_upstream_shader.py
+      - run: python tools/test_nsp_chain.py
+      - run: python tools/test_shader_tables.py
+      - run: python tools/test_nsp_mac.py
+      - run: python dm/tools/tests/test_patches.py

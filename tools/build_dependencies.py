@@ -11,9 +11,9 @@ def available(module):
     try:return importlib.util.find_spec(module) is not None
     except (ImportError,ModuleNotFoundError):return False
 
-def ensure(raw=False,plan=False):
+def ensure(raw=False,plan=False,mac=False):
     os.environ['PATH']=str(Path.home()/'.dotnet')+os.pathsep+os.environ.get('PATH','')
-    tools=['xcodegen']+(['spirv-cross','zstd'] if raw else [])
+    tools=([] if mac else ['xcodegen'])+(['spirv-cross','zstd'] if raw else [])
     missing=[name for name in tools if not shutil.which(name)]
     if sys.version_info<(3,12):missing.append('python@3.14')
     dotnet=raw and (not shutil.which('dotnet') or not any(x.startswith('10.') for x in subprocess.check_output(['dotnet','--list-sdks'],text=True).splitlines()))
@@ -60,7 +60,7 @@ def ensure(raw=False,plan=False):
         os.environ['ACNH_DEPENDENCIES_READY']='1'
         os.execv(str(python),[str(python),*sys.argv])
     if raw:
-        for sdk in ('macosx','iphoneos'):
+        for sdk in (('macosx',) if mac else ('macosx','iphoneos')):
             if subprocess.run(['xcrun','-sdk',sdk,'metal','--version'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL).returncode:
                 print('自动下载 Xcode Metal 编译工具…',flush=True)
                 call(['xcodebuild','-downloadComponent','MetalToolchain']);break
