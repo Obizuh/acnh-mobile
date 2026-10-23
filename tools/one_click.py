@@ -115,6 +115,17 @@ def verify_data(folder):
         for f in handles:f.close()
     return nf,np
 
+def data_matches_source(folder,romfs,count):
+    # Call verify_data first: it validates every path, index bound and data digest.
+    raw=(folder/'ACNH-index.data').read_bytes()
+    nf,fo,so=struct.unpack_from('<Q',raw,16)[0],struct.unpack_from('<Q',raw,32)[0],struct.unpack_from('<Q',raw,40)[0]
+    if nf!=count:return False
+    for i in range(nf):
+        no,off,size,part,reserved,digest=struct.unpack_from('<QQQII32s',raw,fo+i*64)
+        end=raw.index(b'\0',so+no);path=romfs/raw[so+no:end].decode('utf-8')
+        if path.is_symlink() or not path.is_file() or path.stat().st_size!=size or sha(path)!=digest.hex():return False
+    return True
+
 def trash_file(path):
     # Only generated IPA files selected by this tool are moved; no data/save removal.
     device=path.stat().st_dev;home=Path.home();volume=None
@@ -198,6 +209,10 @@ def main():
             if a.mode=='ipa-data':
                 target=output/'ACNHMobile';fingerprint,count=romfs_fingerprint(data['romfs']);marker=target/'.source.json'
                 reuse=marker.is_file() and json.loads(marker.read_text()).get('fingerprint')==fingerprint
+                if target.exists() and not reuse:
+                    print('来源位置已变化，逐文件核对已有数据包…',flush=True);n,parts=verify_data(target)
+                    if data_matches_source(target,data['romfs'],count) and romfs_fingerprint(data['romfs'])[0]==fingerprint:
+                        marker.write_text(json.dumps(dict(fingerprint=fingerprint,files=n,parts=parts)));reuse=True
                 if not reuse:
                     if target.exists():raise ValueError('已有数据目录与当前 RomFS 来源不一致，未覆盖。请选择另一输出目录。')
                     stage=job/'data-stage';print('生成外置 .data（不装入 IPA）…',flush=True)
