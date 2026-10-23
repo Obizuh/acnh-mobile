@@ -22,6 +22,7 @@ def main():
     ap=argparse.ArgumentParser(description=__doc__)
     for name in ['shell','patched','shaders','font','output']:
         ap.add_argument('--'+name,type=Path,required=True)
+    ap.add_argument("--control",type=Path,help="Optional owned control.nacp for supported game languages")
     a=ap.parse_args(); a.output=a.output.resolve()
     if a.output.exists(): raise ValueError('Output already exists')
     profile=ROOT/'dm/games/01006F8002326000'
@@ -56,6 +57,9 @@ def main():
             if p.is_file() and p.suffix in {'.metallib','.json'}: shutil.copyfile(p,target/p.name)
         (dm/'font').mkdir(); shutil.copyfile(a.font,dm/'font/standard.ttf')
         import subprocess,sys
+        info=plistlib.loads((app/'Info.plist').read_bytes())
+        env=dict(os.environ,DM_LANG=str(info.get('DMLanguage','zh-Hans')),DM_SHOW_FPS='1' if info.get('DMShowFPS') else '0')
+        subprocess.run([sys.executable,ROOT/'dm/games/settings.py','01006F8002326000',a.patched,a.control or Path('/nonexistent/control.nacp'),dm/'launcher.json'],env=env,check=True)
         subprocess.run([sys.executable,ROOT/'dm/tools/make_ext_font.py',dm/'font/nintendo_ext.ttf'],check=True)
         with (dm/'env.txt').open('a') as f: f.write('\nDM_SHELL_CHAIN='+chain+'\n')
         a.output.parent.mkdir(parents=True,exist_ok=True)

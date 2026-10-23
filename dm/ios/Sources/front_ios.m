@@ -17,6 +17,7 @@ UIView *dm_gamepad_view(CGRect frame);
 void dm_gamepad_reset(void);
 void front_ios_boot(void);
 int front_ios_boot_ok(void);
+bool dm_show_launcher(void *view_controller, void (*done)(void));
 
 static CAMetalLayer *g_layer;
 static void front_ios_power_watch(void);
@@ -68,7 +69,11 @@ static void game_haptics_start(void) {
 @property (nonatomic, strong) UILabel *fps;
 @property (nonatomic,strong) UILabel *loadLabel;
 @property (nonatomic) BOOL preparing;
+@property (nonatomic) BOOL launched;
+- (void)startGame;
 @end
+static DmRootVC *g_root;
+static void launcher_done(void) { [g_root startGame]; }
 @implementation DmRootVC
 - (void)viewDidLoad {
     [super viewDidLoad];
@@ -78,6 +83,15 @@ static void game_haptics_start(void) {
     self.loadLabel.autoresizingMask=UIViewAutoresizingFlexibleWidth|UIViewAutoresizingFlexibleHeight;
     self.loadLabel.numberOfLines=0;self.loadLabel.textAlignment=NSTextAlignmentCenter;self.loadLabel.textColor=UIColor.whiteColor;
     self.loadLabel.text=@"准备游戏资源…";[self.view addSubview:self.loadLabel];
+}
+- (void)startGame {
+    if(self.game || !front_ios_boot_ok())return;
+    if(getenv("DM_METAL_HUD") && atoi(getenv("DM_METAL_HUD")))setenv("MTL_HUD_ENABLED","1",0);
+    [self.loadLabel removeFromSuperview];
+    [self setupGame];
+    [self.view setNeedsLayout];[self.view layoutIfNeeded];
+    UIApplication.sharedApplication.idleTimerDisabled=YES;
+    front_ios_boot();
 }
 - (void)setupGame {
     game_haptics_start();
@@ -115,7 +129,8 @@ static void game_haptics_start(void) {
         if(error){self.loadLabel.text=error;return;}
         dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED,0),^{
             int ok=front_ios_load_resources(folder.fileSystemRepresentation);
-            dispatch_async(dispatch_get_main_queue(),^{if(!ok){self.loadLabel.text=@"资源启动失败，请查看 log.txt。";return;}[self.loadLabel removeFromSuperview];[self setupGame];[self.view setNeedsLayout];front_ios_boot();});
+            dispatch_async(dispatch_get_main_queue(),^{if(!ok){self.loadLabel.text=@"资源启动失败，请查看 log.txt。";return;}self.launched=YES;g_root=self;
+                if(!dm_show_launcher((__bridge void *)self,launcher_done))[self startGame];});
         });
     });
 }
