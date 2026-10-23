@@ -1,0 +1,104 @@
+workflows:
+  acnh-shell:
+    name: ACNH Shell Build
+    max_build_duration: 60
+    instance_type: mac_mini_m2
+    environment:
+      xcode: "26.6"
+    scripts:
+      - name: Install XcodeGen
+        script: brew install xcodegen
+      - name: Build game-free shell
+        script: python3 tools/build_shell.py --work "$HOME/acnh-shell-work" --output "$CM_BUILD_DIR/shell-output"
+      - name: Package test IPA
+        script: cp "$CM_BUILD_DIR/shell-output/ACNHMobile-shell-build-input.zip" "$CM_BUILD_DIR/ACNHMobile-shell-test.ipa"
+    artifacts:
+      - shell-output/*
+      - ACNHMobile-shell-test.ipa
+  acnh-full:
+    name: ACNH Full Build
+    max_build_duration: 120
+    instance_type: mac_mini_m2
+    environment:
+      xcode: "26.6"
+      groups:
+        - acnh-assets
+    scripts:
+      - name: Install dependencies
+        script: |
+          brew install xcodegen zstd spirv-cross mbedtls p7zip
+          brew install --cask dotnet-sdk
+          python3 -m pip install --user lz4 capstone fonttools
+      - name: Fetch game assets
+        script: |
+          set -e
+          mkdir -p "$HOME/acnh/game" "$HOME/acnh/extract" "$HOME/.switch"
+          cd "$HOME/acnh"
+          curl -fL -o base.zip "$ACNH_ASSET_BASE/up1/1_8s4DM2K6_o_d6693c982cb947d363"
+          curl -fL -o upd303.zip "$ACNH_ASSET_BASE/work/acnh303.zip"
+          curl -fL -o "$HOME/.switch/prod.keys" "$ACNH_ASSET_BASE/work/keys/prod_hactool.keys"
+          curl -fL -o font.ttf "$ACNH_ASSET_BASE/work/fonts/NotoSansSC.ttf"
+          unzip -o base.zip -d extract
+          unzip -o upd303.zip -d extract
+          find extract -name "*.nsp" -exec mv {} game/ \;
+          ls -la game
+      - name: Install Metal toolchain
+        script: |
+          set -e
+          if ! xcrun -sdk macosx metal --version 2>/dev/null | grep -qi metal; then
+            xcodebuild -downloadComponent MetalToolchain
+            dmg=$(ls /System/Library/AssetsV2/com_apple_MobileAsset_MetalToolchain/*/AssetData/Restore/*.dmg | head -1)
+            echo "asset dmg: $dmg"
+            mnt=$(mktemp -d)
+            hdiutil attach "$dmg" -mountpoint "$mnt" -nobrowse
+            tc=$(find "$mnt" -maxdepth 3 -name "*.xctoolchain" | head -1)
+            echo "toolchain: $tc"
+            sudo cp -R "$tc" /Library/Developer/Toolchains/
+            hdiutil detach "$mnt" || true
+          fi
+          xcrun -sdk macosx metal --version
+          xcrun -sdk iphoneos metal --version
+      - name: Prepare and build IPA (v0.3 pipeline, self-built shell)
+        script: |
+          cd "$CM_BUILD_DIR"
+          cat > tools/cm_driver.py <<'PYEOF'
+          import os, subprocess, sys, zipfile
+          from pathlib import Path
+          ROOT = Path(__file__).resolve().parents[1]
+          sys.path.insert(0, str(ROOT / 'tools'))
+          import build_dependencies
+          build_dependencies.ensure(raw=True)
+          from prepare_game import prepare
+          def run(command, log):
+              with subprocess.Popen([str(x) for x in command], cwd=ROOT, env=dict(os.environ, PYTHONDONTWRITEBYTECODE='1'), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1) as proc:
+                  for line in proc.stdout:
+                      print(line, end='', flush=True); log.write(line); log.flush()
+                  if proc.wait(): raise RuntimeError('subcommand failed: ' + ' '.join(map(str, command)))
+          home = Path.home()
+          work = home / 'acnh' / 'cm-work'
+          work.mkdir(parents=True, exist_ok=True)
+          with open(work / 'driver.log', 'w') as log:
+              data = prepare(home / 'acnh' / 'game', home / '.switch' / 'prod.keys', work, run, log)
+          print('prepared:', {k: str(v) for k, v in data.items()}, flush=True)
+          chain = data['chain']
+          build_root = Path(data['build_root'])
+          shell_out = work / 'shell-output'
+          subprocess.run([sys.executable, str(build_root / 'tools' / 'build_shell.py'), '--work', str(work / 'shell-work'), '--output', str(shell_out)], check=True, cwd=build_root)
+          shell_ipa = next(shell_out.glob('*.ipa'))
+          print('shell built:', shell_ipa, flush=True)
+          out = Path(os.environ['CM_BUILD_DIR']) / 'ACNHMobile-unsigned.ipa'
+          cmd = [sys.executable, str(build_root / 'tools' / 'public_setup.py'), 'build',
+                 '--patched', str(data['patched']), '--romfs', str(data['romfs']), '--shaders', str(data['shaders']),
+                 '--font', str(home / 'acnh' / 'font.ttf'), '--work', str(work / 'ipa-work'), '--output', str(out),
+                 '--shell', str(shell_ipa)]
+          subprocess.run(cmd, check=True, cwd=ROOT)
+          want = '/msl/b-' + chain + '/'
+          with zipfile.ZipFile(out) as z:
+              hits = [n for n in z.namelist() if want in n and n.endswith('.metallib')]
+          print('chain check: chain', chain, 'metallibs in bundle:', len(hits), flush=True)
+          assert hits, 'CHAIN MISMATCH: bundle lacks msl/b-' + chain
+          print('IPA built:', out, out.stat().st_size)
+          PYEOF
+          python3 tools/cm_driver.py
+    artifacts:
+      - ACNHMobile-unsigned.ipa
