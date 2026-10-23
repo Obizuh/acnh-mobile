@@ -36,9 +36,9 @@ def cache_key(family):
     h=hashlib.sha256(source_id(ROOT).encode())
     for p in [family['base'],family['updates'][0][1]]:
         h.update(p.name.encode());h.update(str(p.stat().st_size).encode());h.update(str(p.stat().st_mtime_ns).encode())
-    for base in ('dm/tools','dm/gfx/tools','dm/games/'+TITLE,'dm/third_party/ryujinx'):
+    for base in ('tools','dm/tools','dm/gfx/tools','dm/games/'+TITLE,'dm/third_party/ryujinx'):
         for p in sorted((ROOT/base).rglob('*')):
-            if p.is_file() and p.suffix in ('.py','.cs','.csproj','.tsv','.h','.lock') and not any(x in ('obj','bin','__pycache__') for x in p.parts):h.update(p.read_bytes())
+            if p.is_file() and p.name not in ('c1_full.tsv','cb_extent.tsv') and p.suffix in ('.py','.cs','.csproj','.tsv','.h','.lock') and not any(x in ('obj','bin','__pycache__') for x in p.parts):h.update(p.read_bytes())
     return h.hexdigest()[:20]
 
 def prepare(game,keys,work,run,log):
@@ -46,7 +46,13 @@ def prepare(game,keys,work,run,log):
     cache=Path(work)/'prepared'/cache_key(family);cache.mkdir(parents=True,exist_ok=True)
     repo=cache/'source';manifest=cache/'prepared.json'
     if manifest.is_file():
-        data=json.loads(manifest.read_text());shutil.copyfile(ROOT/'config/version.json',Path(data['build_root'])/'config/version.json');return {k:Path(v) if k!='chain' else v for k,v in data.items()}
+        data=json.loads(manifest.read_text())
+        from shader_tables import chain_header,ensure_tables
+        prepared_root=Path(data['build_root'])
+        if chain_header(prepared_root)!=data['chain']:raise ValueError('Prepared shader chain changed; prepare the game again')
+        ensure_tables(prepared_root,Path(data['shaders']),data['chain'])
+        shutil.copyfile(ROOT/'config/version.json',prepared_root/'config/version.json')
+        return {k:Path(v) if k!='chain' else v for k,v in data.items()}
     if not repo.exists():
         shutil.copytree(ROOT,repo,ignore=shutil.ignore_patterns('.git','.venv','work','local','outputs','__pycache__','Gen','gen','bin','obj','build','*.xcodeproj','*.xcworkspace','*.dSYM','*.local.json'))
     shutil.copyfile(ROOT/'config/version.json',repo/'config/version.json')
@@ -72,10 +78,7 @@ def prepare(game,keys,work,run,log):
     sh=cache/'shader'
     key=u.split_shaders(sys.executable,repo,[ex/'RomFS'],[ex/'ExeFS/main'],sh/'pkg',env,logs,g)
     ios=u.build_shaders(sys.executable,repo,sh,xlate,env,logs,g,pkg_key=key)
-    print('生成并核对匹配的着色器配置表…',flush=True)
-    for tool,table in [('c1_guard.py','c1_full.tsv'),('cb_extent.py','cb_extent.tsv')]:
-        chain=__import__('re').search(r'#define DMSH_CHAIN "([0-9a-f]+)"',g.table('dmsh_chain.h').read_text())[1]
-        u.run([sys.executable,repo/'dm/gfx/tools'/tool,sh/'cache'/('b-'+chain),g.table(table)],logs/(tool+'.log'),env=env)
+    chain=u.chain_of(g)   # build_shaders also generates/validates both local tables, even on reuse
     data=dict(patched=patched,romfs=ex/'RomFS',shaders=ios,build_root=repo,chain=chain)
     # Written only after every stage succeeds; later IPA construction validates the cache again.
     manifest.write_text(json.dumps({k:str(v) for k,v in data.items()}))

@@ -49,3 +49,7 @@ ExeFS/
 
 # Private local launcher paths and settings.
 *.local.json
+
+# Generated from this checkout's matching Mac shader build (NXNative 4c7adf4).
+dm/games/*/c1_full.tsv
+dm/games/*/cb_extent.tsv

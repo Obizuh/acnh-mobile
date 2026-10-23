@@ -46,6 +46,10 @@ jobs:
           python tools/test_prepare_game.py
           python tools/test_launcher.py
           python tools/test_own_compilers.py
+          python dm/gfx/tools/test_dmsh_alpha.py
+          python dm/gfx/tools/test_upstream_shader.py
+          python tools/test_nsp_chain.py
+          python tools/test_shader_tables.py
           clang -fobjc-arc dm/ios/tests/t_pad_layout.m -framework Foundation -framework CoreGraphics -o "$RUNNER_TEMP/t-pad-layout"
           "$RUNNER_TEMP/t-pad-layout"
       - name: Install project generator

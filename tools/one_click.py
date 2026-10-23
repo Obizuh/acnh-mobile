@@ -33,7 +33,10 @@ def inputs(settings):
     romfs=choose([settings.get('romfs'),build/'extract/3.0.3/RomFS'],'3.0.3 RomFS')
     shaders=choose([settings.get('shaders'),build/'upstream_shader/ios'],'官方 iOS 着色器缓存')
     font=choose([settings.get('font'),Path('/System/Library/Fonts/Supplemental/Arial Unicode.ttf')],'字体')
-    chain=re.search(r'#define DMSH_CHAIN "([0-9a-f]+)"',(profile/'dmsh_chain.h').read_text()).group(1)
+    from shader_tables import chain_header,ensure_tables,validate_cache
+    chain=chain_header(root)
+    validate_cache(root,shaders,chain)
+    ensure_tables(root,shaders,chain)
     cache=shaders/('b-'+chain)
     if not (romfs/MARKER).is_file():raise ValueError('RomFS 不完整或不是动森。')
     expected={}
