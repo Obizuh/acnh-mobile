@@ -102,6 +102,8 @@ private struct LauncherView: View {
     let edit: (String) -> Void
     let play: () -> Void
     @State private var memory = os_proc_available_memory()
+    @State private var personalizationExpanded = false
+    private let personalizationKeys = ["ACNH_CONTROLLER_LAYOUT", "ACNH_CUSTOM_BASE", "ACNH_AUDIO_IGNORE_SILENT", "DM_TOUCH_HAPTICS", "DM_RUMBLE", "DM_RUMBLE_GAIN"]
 
     var body: some View {
         HStack(spacing: 0) {
@@ -116,9 +118,27 @@ private struct LauncherView: View {
             .padding(24)
             .frame(maxWidth: .infinity)
             Form {
-                ForEach(m.settings) { setting in
-                    if setting.env != "ACNH_CUSTOM_BASE" || m.values["ACNH_CONTROLLER_LAYOUT"] == "custom" {
-                        SettingRow(s: setting, m: m, edit: edit)
+                ForEach(m.settings.filter { !personalizationKeys.contains($0.env) }) { setting in
+                    SettingRow(s: setting, m: m, edit: edit)
+                }
+                Section {
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.2)) { personalizationExpanded.toggle() }
+                    } label: {
+                        HStack {
+                            Text(localized("Personalization", "个性化")).foregroundStyle(.primary)
+                            Spacer()
+                            Image(systemName: personalizationExpanded ? "chevron.down" : "chevron.right")
+                                .font(.body.weight(.semibold)).foregroundStyle(.secondary).accessibilityHidden(true)
+                        }.contentShape(Rectangle())
+                    }
+                    .accessibilityValue(personalizationExpanded ? localized("Expanded", "已展开") : localized("Collapsed", "已折叠"))
+                }
+                if personalizationExpanded {
+                    ForEach(personalizationKeys, id: \.self) { key in
+                        if let setting = m.settings.first(where: { $0.env == key }), key != "ACNH_CUSTOM_BASE" || m.values["ACNH_CONTROLLER_LAYOUT"] == "custom" {
+                            SettingRow(s: setting, m: m, edit: edit)
+                        }
                     }
                 }
                 Section {

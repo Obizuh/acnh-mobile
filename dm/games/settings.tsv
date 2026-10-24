@@ -13,8 +13,8 @@ DM_LANG	choice	languages	build:DM_LANG	languages>1	Game language
 DM_SHOW_FPS	toggle	-	build:DM_SHOW_FPS	always	Frame-rate counter
 DM_METAL_HUD	toggle	-	0	always	Performance HUD	Apple's Metal HUD over the game: frame rate, frame and GPU time, memory
 ACNH_CONTROLLER_LAYOUT	choice	generic=Generic,acnh=Dedicated,custom=Custom	acnh	always	Controller layout
-ACNH_AUDIO_IGNORE_SILENT	toggle	-	0	always	Play sound in silent mode
 ACNH_CUSTOM_BASE	choice	generic=Generic,acnh=Dedicated	acnh	always	Customize from
+ACNH_AUDIO_IGNORE_SILENT	toggle	-	0	always	Play sound in silent mode
 DM_TOUCH_HAPTICS	toggle	-	1	always	Touch feedback	Haptic clicks when pressing touch controls.
 DM_RUMBLE	toggle	-	1	always	Game rumble	Vibration from the game on your phone or connected controller.
 DM_RUMBLE_GAIN	range	0:3:0.1	1.0	always	Rumble strength	Adjusts game rumble alongside the game's own vibration setting.
