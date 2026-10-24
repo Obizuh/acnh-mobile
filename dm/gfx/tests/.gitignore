@@ -63,3 +63,8 @@ t_readback
 t_linear_readback
 
 t_pso_pending
+
+t_integer_blend
+t_primitive_restart
+t_clear_ds
+t_upgrade_alias
