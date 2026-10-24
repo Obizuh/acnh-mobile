@@ -58,3 +58,8 @@ t_view_swizzle.dSYM/
 t_prog_restore
 
 t_geometry
+
+t_readback
+t_linear_readback
+
+t_pso_pending

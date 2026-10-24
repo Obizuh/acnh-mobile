@@ -7,9 +7,11 @@
 #include <string.h>
 #include "dm_input.h"
 #include "front.h"
+#include "haptics_apple.h"
 #include "AcnhTouchLogic.h"
 #include "AcnhTextDetect.h"
 #import "PadCustomization.h"
+#import "TouchFeedback.h"
 enum { B_A=0,B_B,B_X,B_Y,B_LS,B_RS,B_L,B_R,B_ZL,B_ZR,B_PLUS,B_MINUS,B_LEFT,B_UP,B_RIGHT,B_DOWN,B_L_TOP,B_N };
 _Static_assert(B_UP==13 && B_A==0,"Tool-wheel input bit mapping");
 // Both visible L controls send the same Switch button.
@@ -60,6 +62,7 @@ static void placeLabel(CATextLayer *t,CGPoint c,CGFloat size){t.fontSize=size;t.
 @end
 static __weak DmGamepad *g_view;
 @implementation DmGamepad {
+ UIImpactFeedbackGenerator *_touchFeedback;TouchFeedbackEdges _feedbackEdges;
  NSMapTable<UITouch *,NSNumber *> *_owner,*_screenTouches;
  CAShapeLayer *_key[B_N],*_glyph[B_N],*_ring,*_knob,*_rightKnob;
  CATextLayer *_label[B_N];
@@ -70,6 +73,7 @@ static __weak DmGamepad *g_view;
 - (instancetype)initWithFrame:(CGRect)f{
  if((self=[super initWithFrame:f])){
   self.multipleTouchEnabled=YES;self.opaque=NO;self.backgroundColor=UIColor.clearColor;
+ _touchFeedback=touch_feedback_create(acnh_pad_editing());
   _owner=[NSMapTable strongToStrongObjectsMapTable];_screenTouches=[NSMapTable strongToStrongObjectsMapTable];
   _ring=acnhControlOutline(self.layer);_knob=acnhControlOutline(self.layer);
   for(int b=0;b<B_N;b++){
@@ -147,6 +151,7 @@ static __weak DmGamepad *g_view;
  uint64_t buttons=0;for(UITouch *t in _owner){uint64_t owner=[_owner objectForKey:t].unsignedLongLongValue;if((owner&255)==C_BTN)buttons|=1ull<<inputButton((int)(owner>>8));}
  AcnhAxis left=_stick?acnh_axis(_stickNow.x-self.stickHome.x,_stickNow.y-self.stickHome.y,self.stickR):(AcnhAxis){0};
  CGPoint rc=[self buttonCenter:B_RS];AcnhAxis right=_camera?acnh_axis(_cameraNow.x-rc.x,_cameraNow.y-rc.y,[self radius:B_RS]):(AcnhAxis){0};
+ touch_feedback_update(_touchFeedback,&_feedbackEdges,buttons|(_toolTouch?(1ull<<_wheelButton):0),(_stick?1u:0)|(_camera?2u:0),NO);
  AcnhWheelOutput tool=acnh_wheel_sample(&_wheel,CACurrentMediaTime());if(tool.active){buttons|=tool.buttons;left=tool.axis;}
  if(!_wheel.active){[_toolLink invalidate];_toolLink=nil;}
  _btnBits=buttons;_faceBits=0;pthread_mutex_lock(&g_mu);g_touch_btn=buttons;g_touch_lx=(int32_t)(left.x*32767);g_touch_ly=(int32_t)(left.y*32767);g_touch_rx=(int32_t)(right.x*32767);g_touch_ry=(int32_t)(right.y*32767);pthread_mutex_unlock(&g_mu);publish();[self refresh];
@@ -269,6 +274,7 @@ static __weak DmGamepad *g_view;
 // Physical controllers ----
 static int32_t axis(float v) { return (int32_t)(fmaxf(-1.f, fminf(1.f, v)) * 32767); }
 static void read_pad(GCExtendedGamepad *g) {
+    dm_haptics_apple_controller(0,g.controller);
     uint64_t m = 0;
     #define K(btn, bit) if (btn.isPressed) m |= 1ull << bit
     K(g.buttonB, B_A); K(g.buttonA, B_B); K(g.buttonY, B_X); K(g.buttonX, B_Y);   // by position: right A, bottom B, top X, left Y
@@ -310,7 +316,7 @@ static void read_pad(GCExtendedGamepad *g) {
         any = YES; c.extendedGamepad.valueChangedHandler = ^(GCExtendedGamepad *g, GCControllerElement *el) { (void)el; read_pad(g); };
         read_pad(c.extendedGamepad);
     }
-    if (!any) { pthread_mutex_lock(&g_mu); g_pad_btn = 0; g_pad_lx = g_pad_ly = g_pad_rx = g_pad_ry = 0; pthread_mutex_unlock(&g_mu); publish(); }
+    if (!any) { dm_haptics_apple_controller(0,nil); pthread_mutex_lock(&g_mu); g_pad_btn = 0; g_pad_lx = g_pad_ly = g_pad_rx = g_pad_ry = 0; pthread_mutex_unlock(&g_mu); publish(); }
     dispatch_async(dispatch_get_main_queue(), ^{ self.hidden = any; if (any) [self reset]; });
 }
 @end

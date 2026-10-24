@@ -457,40 +457,45 @@ def build_mismatch(d, name, g):   # the modules of an extraction whose build ID 
 
 
 def rewrite(py, repo, exe_dir, out, env, logs, g):
-    """patch_nso.py on every code module at once (each writes its own <module>.* files, all the same build_src.sha256 line), each with its log.
-    Reused when the modules, patch_nso.py (with nso_code.py, nso_asm.py and the patch files of their builds), its switch and capstone are as at the last successful rewrite
-    (Monster Hunter Rise's main alone takes 5.5 min)"""
+    """patch_nso.py on every code module (each writes its own <module>.* files, all the same build_src.sha256 line), each with its log, as many at once as the Mac has cores.
+    The modules are the profile's and the NROs the game registers (collect_nros; nro.tsv beside them lists those). Reused when the modules, patch_nso.py (with nso_code.py, nso_asm.py
+    and the patch files of their builds), its switch and capstone are as at the last successful rewrite (Monster Hunter Rise's main alone takes 5.5 min)"""
     import capstone
     mods = g.words('modules')
     PROG.stage('rewrite', step='checking the inputs')
+    nro_dir = out.with_name('nro_' + out.name.removeprefix('patched_'))
+    nros = collect_nros(py, repo, exe_dir.parent / 'RomFS', nro_dir, env, logs)
+    manifest = nro_dir / 'nro.tsv'
+    src = {m: exe_dir / m for m in mods} | nros
+    names = list(src)
     kf = out.with_name(out.name + '.key')
-    key = fingerprint(('files', [repo / 'dm/tools' / f for f in ('patch_nso.py', 'nso_code.py', 'nso_asm.py')] + patch_files(repo, exe_dir, mods) + [exe_dir / m for m in mods]), mods, capstone.__version__,
+    key = fingerprint(('files', [repo / 'dm/tools' / f for f in ('patch_nso.py', 'nso_code.py', 'nso_asm.py')] + patch_files(repo, exe_dir, mods) + list(src.values()) + ([manifest] if manifest.is_file() else [])), names, capstone.__version__,
                       {k: env.get(k) for k in ('DM_PATCH_FRONT',)})
-    if all((out / f'{m}.patched.bin').is_file() for m in mods) and reused(kf, key) is not None:
-        PROG.end(f'{", ".join(mods)}, reused (inputs unchanged)'); return
+    if all((out / f'{m}.patched.bin').is_file() for m in names) and reused(kf, key) is not None:
+        PROG.end(f'{", ".join(mods)}{f" and {len(nros)} NROs" if nros else ""}, reused (inputs unchanged)'); return
     tmp = out.with_name(out.name + '.partial'); rmtree(tmp); tmp.mkdir(parents=True); logs.mkdir(parents=True, exist_ok=True)
-    PROG.set(step=', '.join(mods), done=0, total=len(mods), unit='modules')
-    procs, logf = {}, {}
+    if manifest.is_file(): shutil.copyfile(manifest, tmp / 'nro.tsv')   # refused-only manifests preserve the game's offline registration path too
+    PROG.set(step=', '.join(mods) + (f' and {len(nros)} NROs' if nros else ''), done=0, total=len(names), unit='modules')
+    procs, logf, todo, cores = {}, {}, list(names), max(2, os.cpu_count() or 4)
     try:
-        for m in mods:
-            logf[m] = open(logs / f'rewrite_{m}.log', 'w')
-            procs[m] = subprocess.Popen([str(py), str(repo / 'dm/tools/patch_nso.py'), str(exe_dir / m), str(tmp), m], env=env, stdout=logf[m], stderr=subprocess.STDOUT)
-        left = list(mods)
-        while left:
-            for m in [m for m in left if procs[m].poll() is not None]:
-                left.remove(m); PROG.set(done=len(mods) - len(left))
-                if procs[m].returncode:
-                    log = logs / f'rewrite_{m}.log'; logf[m].close()
+        while todo or procs:
+            while todo and len(procs) < cores:
+                m = todo.pop(0); logf[m] = open(logs / f'rewrite_{m}.log', 'w')
+                procs[m] = subprocess.Popen([str(py), str(repo / 'dm/tools/patch_nso.py'), str(src[m]), str(tmp), m], env=env, stdout=logf[m], stderr=subprocess.STDOUT)
+            for m in [m for m in procs if procs[m].poll() is not None]:
+                p = procs.pop(m); logf[m].close(); PROG.set(done=len(names) - len(todo) - len(procs))
+                if p.returncode:
+                    log = logs / f'rewrite_{m}.log'
                     PROG.end(ok=False)
                     PROG.say(f'---- last lines of {log} ----\n' + ''.join(collections.deque(open(log, errors='replace'), maxlen=40)).rstrip('\n'))
-                    raise BuildError(f'patch_nso.py exit code {procs[m].returncode} on {m} (full output: {log})')
+                    raise BuildError(f'patch_nso.py exit code {p.returncode} on {m} (full output: {log})')
             time.sleep(0.2)
     finally:   # an error or an interrupt stops the other rewrites
         for p in procs.values():
             if p.poll() is None: p.terminate(); p.wait()
         for f in logf.values(): f.close()
     rmtree(kf); swap_in(tmp, out); kf.write_text(f'{key}\n')
-    PROG.end(', '.join(mods))
+    PROG.end(', '.join(mods) + (f' and {len(nros)} NROs' if nros else ''))
 
 
 def data_rows(b):   # a table's data rows (without # comment lines: the header changes with the shader_split.py version, not with the game files)
@@ -703,3 +708,21 @@ def mac_run(py, repo, work, game, patched, msl, aoc, gfx, lang, env, logs, g, en
     PROG.end(str(host))
     q = lambda v: shlex.quote(str(v))
     return f'cd {q(rd)} && ' + ' '.join(f'{k}={q(v)}' for k, v in renv.items()) + f' {q(host)} {q(patched)}'
+
+def collect_nros(py, repo, romfs, dst, env, logs):
+    """The NROs a game registers in NRR files (RomFS *.nrr) and loads at run time with nn::ro, found by their SHA-256 as loose files or inside the RomFS's archives (dm/tools/nro_collect.py):
+    {module name: NRO path}, {} for a game without NRRs. The host maps their rewritten copies at start and loads one when the game asks (loader.c "NRO modules"; Super Smash Bros. Ultimate:
+    98 in data.arc). Reused while the NRRs, RomFS tree and collection tools are unchanged"""
+    nrrs = sorted(p for p in romfs.rglob('*.nrr') if p.is_file())   # Super Smash Bros. Ultimate keeps them in a folder named .nrr
+    kf = dst.with_name(dst.name + '.key')
+    if not nrrs:
+        rmtree(dst); rmtree(kf)   # an update can remove its NRRs: do not carry the previous manifest into the rewrite
+        return {}
+    key = fingerprint(('files', nrrs + [repo / f for f in ('dm/tools/nro_collect.py', 'dm/tools/nso_syms.py', 'dm/gfx/tools/smash_arc.py')]), ('tree', romfs))
+    if not ((dst / 'nro.tsv').is_file() and reused(kf, key) is not None):
+        tmp = dst.with_name(dst.name + '.partial'); rmtree(tmp)
+        PROG.set(step=f'finding the NROs {len(nrrs)} NRR files register')
+        run([py, repo / 'dm/tools/nro_collect.py', romfs, tmp], logs / 'nro_collect.log', env=env)
+        rmtree(kf); swap_in(tmp, dst); kf.write_text(f'{key}\n')
+    # rows named 'refused' are online SDKs the host never loads (Epic Online Services): listed for the host's log, not rewritten
+    return {l.split('\t')[0]: dst / (l.split('\t')[0] + '.nro') for l in (dst / 'nro.tsv').read_text().splitlines() if l and not l.startswith('#') and not l.startswith('refused\t')}

@@ -24,7 +24,7 @@ private func localized(_ english: String, _ chinese: String) -> String {
     LauncherText.text(english, chinese)
 }
 private func label(_ s: Setting) -> String {
-    let names = ["ACNH_CUSTOM_BASE": "调整对象", "ACNH_AUDIO_IGNORE_SILENT": "静音模式下播放声音", "ACNH_CONTROLLER_LAYOUT": "控制器布局", "DM_FPS_TARGET": "帧率", "DM_RENDER_SCALE": "渲染比例", "DM_OPMODE": "运行模式", "DM_LANG": "游戏语言", "DM_SHOW_FPS": "显示帧率", "DM_METAL_HUD": "性能信息面板"]
+    let names = ["DM_RUMBLE": "游戏震动", "DM_RUMBLE_GAIN": "震动强度", "DM_TOUCH_HAPTICS": "触屏反馈", "ACNH_CUSTOM_BASE": "调整对象", "ACNH_AUDIO_IGNORE_SILENT": "静音模式下播放声音", "ACNH_CONTROLLER_LAYOUT": "控制器布局", "DM_FPS_TARGET": "帧率", "DM_RENDER_SCALE": "渲染比例", "DM_OPMODE": "运行模式", "DM_LANG": "游戏语言", "DM_SHOW_FPS": "显示帧率", "DM_METAL_HUD": "性能信息面板"]
     return localized(s.label, names[s.env] ?? s.label)
 }
 private func optionLabel(_ s: Setting, _ option: [String]) -> String {
@@ -102,6 +102,8 @@ private struct LauncherView: View {
     let edit: (String) -> Void
     let play: () -> Void
     @State private var memory = os_proc_available_memory()
+    @State private var personalizationExpanded = false
+    private let personalizationKeys = ["ACNH_CONTROLLER_LAYOUT", "ACNH_CUSTOM_BASE", "ACNH_AUDIO_IGNORE_SILENT", "DM_TOUCH_HAPTICS", "DM_RUMBLE", "DM_RUMBLE_GAIN"]
 
     var body: some View {
         HStack(spacing: 0) {
@@ -116,9 +118,28 @@ private struct LauncherView: View {
             .padding(24)
             .frame(maxWidth: .infinity)
             Form {
-                ForEach(m.settings) { setting in
-                    if setting.env != "ACNH_CUSTOM_BASE" || m.values["ACNH_CONTROLLER_LAYOUT"] == "custom" {
-                        SettingRow(s: setting, m: m, edit: edit)
+                ForEach(m.settings.filter { !personalizationKeys.contains($0.env) }) { setting in
+                    SettingRow(s: setting, m: m, edit: edit)
+                }
+                Section {
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.2)) { personalizationExpanded.toggle() }
+                    } label: {
+                        HStack {
+                            Text(localized("Personalization", "个性化")).foregroundStyle(Color(uiColor: .label))
+                            Spacer()
+                            Image(systemName: personalizationExpanded ? "chevron.down" : "chevron.right")
+                                .font(.body.weight(.semibold)).foregroundStyle(Color(uiColor: .secondaryLabel)).accessibilityHidden(true)
+                        }.contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityValue(personalizationExpanded ? localized("Expanded", "已展开") : localized("Collapsed", "已折叠"))
+                }
+                if personalizationExpanded {
+                    ForEach(personalizationKeys, id: \.self) { key in
+                        if let setting = m.settings.first(where: { $0.env == key }), key != "ACNH_CUSTOM_BASE" || m.values["ACNH_CONTROLLER_LAYOUT"] == "custom" {
+                            SettingRow(s: setting, m: m, edit: edit)
+                        }
                     }
                 }
                 Section {
