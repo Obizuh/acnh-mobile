@@ -11,6 +11,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <sys/stat.h>
+#include "directory_visibility.h"
 #include <unistd.h>
 #include <stdio.h>
 #include <stdatomic.h>
@@ -96,10 +97,8 @@ static Result mount_ex(const char *name, const char *dir, int ro, int txn) {
     if (txn && k < g_nmnt) {   // a second name for a save already mounted (account and device save data are one host save): it shares that transaction, whose pending writes a new clone would drop
         strlcpy(g_mnt[g_nmnt].commit, g_mnt[k].commit, sizeof g_mnt[0].commit); strlcpy(g_mnt[g_nmnt].dir, g_mnt[k].dir, sizeof g_mnt[0].dir);
     } else if (txn) {
-        char work[1100], neu[1100]; const char *slash=strrchr(dir,'/');
-        if(!getenv("ACNH_HIDE_SAVE_WORK"))snprintf(work,sizeof work,"%s.work",dir);
-        else if(slash)snprintf(work,sizeof work,"%.*s/.%s.work",(int)(slash-dir),dir,slash+1);
-        else snprintf(work,sizeof work,".%s.work",dir); snprintf(neu, sizeof neu, "%s.new", dir);
+        char work[1100], neu[1100];
+        snprintf(work,sizeof work,"%s.work",dir); snprintf(neu,sizeof neu,"%s.new",dir);
         mkdir(dir, 0755);
         const char *why = NULL;
         if (!access(work, F_OK) && rm_tree(work)) why = "cannot clear the work directory left over from last time";
@@ -108,6 +107,10 @@ static Result mount_ex(const char *name, const char *dir, int ro, int txn) {
         if (why) { txn_err = errno ? errno : EIO; g_mnt[g_nmnt].ro = 1; strlcpy(g_mnt[g_nmnt].dir, dir, sizeof g_mnt[0].dir);
             LOG("[RED] save transaction: %s (%s, errno=%d) -- mounting the committed directory %s read-only instead: saves cannot be written this session, the committed version is unchanged", why, work, txn_err, dir); }
         else {
+            if(getenv("ACNH_HIDE_RUNTIME_DIRS")) {
+                if(dm_directory_hidden(work,1))LOG("save work hidden attribute failed errno=%d",errno);
+                if(dm_directory_hidden(dir,0))LOG("save visibility attribute failed errno=%d",errno);
+            }
             strlcpy(g_mnt[g_nmnt].commit, dir, sizeof g_mnt[0].commit);
             atomic_store(&g_save_poison, 0);                                // the working directory was just cloned from the committed version, intact
             strlcpy(g_mnt[g_nmnt].dir, work, sizeof g_mnt[0].dir); }
@@ -461,7 +464,7 @@ static Result commit_mount_locked(int i, int *notify_error) {
         if (!access(re, F_OK) && rm_tree(re)) rerr = errno ? errno : EIO;
         else if (dm_fs_test_fail("reclone") || clonefile(g_mnt[i].commit, re, 0)) { rerr = errno ? errno : EIO; rm_tree(re); }
         else if (renamex_np(re, g_mnt[i].dir, RENAME_SWAP)) { rerr = errno ? errno : EIO; rm_tree(re); }
-        else rm_tree(re);                                               // the swapped-out tainted work directory
+        else {rm_tree(re);if(getenv("ACNH_HIDE_RUNTIME_DIRS") && dm_directory_hidden(g_mnt[i].dir,1))LOG("save work hidden attribute failed errno=%d",errno);} // swapped-out tainted work directory
         if (rerr) { save_poison(perr); LOG("[RED] save transaction: recloning the work directory failed errno=%d -- the work directory is left as it is and stays tainted (the next commit is refused again and retries), the committed version is unchanged", rerr); }
         LOG("[RED] save commit refused: a save write failed in this transaction errno=%d (0-byte files in the work directory: %s); the committed version is unchanged, the work directory %s%s", perr, tl ? torn + 1 : "none", rerr ? "could not be recloned (see the previous line)" : "was recloned from the committed version", nopen ? "; [RED] save files are still open" : "");
         *notify_error = perr;
@@ -471,6 +474,7 @@ static Result commit_mount_locked(int i, int *notify_error) {
     Result r = RES_OK;
     if (!access(neu, F_OK)) rm_tree(neu);
     if (clonefile(g_mnt[i].dir, neu, 0)) { LOG("[RED] save commit: clonefile %s failed errno=%d (committed version unchanged)", neu, errno); r = RES_FAIL; }
+    else if (getenv("ACNH_HIDE_RUNTIME_DIRS") && dm_directory_hidden(neu,0)) { LOG("[RED] save commit: cannot clear cloned hidden attribute errno=%d (committed version unchanged)",errno); rm_tree(neu); r=RES_FAIL; }
     else if (renamex_np(neu, g_mnt[i].commit, RENAME_SWAP)) { LOG("[RED] save commit: atomic swap failed errno=%d (committed version unchanged)", errno); rm_tree(neu); r = RES_FAIL; }
     else rm_tree(neu);                                                  // the old version that was swapped out
     // Timing readouts (integer microseconds, no floating point): how long the clone + atomic swap took; how long in total from this transaction's first save write to the end of the commit (the game writing files + the commit; 0 = no save write in this transaction)
