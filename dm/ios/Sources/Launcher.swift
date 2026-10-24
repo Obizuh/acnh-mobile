@@ -126,12 +126,13 @@ private struct LauncherView: View {
                         withAnimation(.easeInOut(duration: 0.2)) { personalizationExpanded.toggle() }
                     } label: {
                         HStack {
-                            Text(localized("Personalization", "个性化")).foregroundStyle(.primary)
+                            Text(localized("Personalization", "个性化")).foregroundStyle(Color(uiColor: .label))
                             Spacer()
                             Image(systemName: personalizationExpanded ? "chevron.down" : "chevron.right")
-                                .font(.body.weight(.semibold)).foregroundStyle(.secondary).accessibilityHidden(true)
+                                .font(.body.weight(.semibold)).foregroundStyle(Color(uiColor: .secondaryLabel)).accessibilityHidden(true)
                         }.contentShape(Rectangle())
                     }
+                    .buttonStyle(.plain)
                     .accessibilityValue(personalizationExpanded ? localized("Expanded", "已展开") : localized("Collapsed", "已折叠"))
                 }
                 if personalizationExpanded {
