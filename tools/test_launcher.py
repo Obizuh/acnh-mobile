@@ -10,12 +10,18 @@ class LauncherTests(unittest.TestCase):
     def test_acnh_hides_unimplemented_fps_and_scale(self):
         with tempfile.TemporaryDirectory() as t:
             d=settings.build('01006F8002326000',t,Path(t)/'missing.nacp')
-            self.assertEqual({s['env'] for s in d['settings']},{'DM_OPMODE','DM_SHOW_FPS','DM_METAL_HUD','ACNH_CONTROLLER_LAYOUT','ACNH_AUDIO_IGNORE_SILENT','ACNH_CUSTOM_BASE','DM_TOUCH_HAPTICS'})
+            self.assertEqual({s['env'] for s in d['settings']},{'DM_OPMODE','DM_SHOW_FPS','DM_METAL_HUD','ACNH_CONTROLLER_LAYOUT','ACNH_AUDIO_IGNORE_SILENT','ACNH_CUSTOM_BASE','DM_TOUCH_HAPTICS','DM_RUMBLE','DM_RUMBLE_GAIN'})
     def test_touch_feedback_default(self):
         with tempfile.TemporaryDirectory() as t:
             row=next(s for s in settings.build('01006F8002326000',t,Path(t)/'missing.nacp')['settings'] if s['env']=='DM_TOUCH_HAPTICS')
             self.assertEqual(row['kind'],'toggle')
             self.assertEqual(row['default'],'1')
+    def test_game_rumble_defaults(self):
+        with tempfile.TemporaryDirectory() as t:
+            rows={s['env']:s for s in settings.build('01006F8002326000',t,Path(t)/'missing.nacp')['settings']}
+            self.assertEqual(rows['DM_RUMBLE']['default'],'1')
+            self.assertEqual(rows['DM_RUMBLE_GAIN']['default'],'1.0')
+            self.assertEqual((rows['DM_RUMBLE_GAIN']['min'],rows['DM_RUMBLE_GAIN']['max']),(0.0,3.0))
     def test_custom_template_choices(self):
         with tempfile.TemporaryDirectory() as t:
             row=next(s for s in settings.build('01006F8002326000',t,Path(t)/'missing.nacp')['settings'] if s['env']=='ACNH_CUSTOM_BASE')

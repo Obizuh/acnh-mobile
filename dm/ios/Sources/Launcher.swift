@@ -24,7 +24,7 @@ private func localized(_ english: String, _ chinese: String) -> String {
     LauncherText.text(english, chinese)
 }
 private func label(_ s: Setting) -> String {
-    let names = ["DM_TOUCH_HAPTICS": "触屏反馈", "ACNH_CUSTOM_BASE": "调整对象", "ACNH_AUDIO_IGNORE_SILENT": "静音模式下播放声音", "ACNH_CONTROLLER_LAYOUT": "控制器布局", "DM_FPS_TARGET": "帧率", "DM_RENDER_SCALE": "渲染比例", "DM_OPMODE": "运行模式", "DM_LANG": "游戏语言", "DM_SHOW_FPS": "显示帧率", "DM_METAL_HUD": "性能信息面板"]
+    let names = ["DM_RUMBLE": "游戏震动", "DM_RUMBLE_GAIN": "震动强度", "DM_TOUCH_HAPTICS": "触屏反馈", "ACNH_CUSTOM_BASE": "调整对象", "ACNH_AUDIO_IGNORE_SILENT": "静音模式下播放声音", "ACNH_CONTROLLER_LAYOUT": "控制器布局", "DM_FPS_TARGET": "帧率", "DM_RENDER_SCALE": "渲染比例", "DM_OPMODE": "运行模式", "DM_LANG": "游戏语言", "DM_SHOW_FPS": "显示帧率", "DM_METAL_HUD": "性能信息面板"]
     return localized(s.label, names[s.env] ?? s.label)
 }
 private func optionLabel(_ s: Setting, _ option: [String]) -> String {

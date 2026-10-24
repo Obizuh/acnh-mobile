@@ -73,8 +73,17 @@ tsan: $(B)/t_audio_spsc_tsan
 $(B)/t_audio_watchdog: t_audio_watchdog.c ../hle_audio.c ../hle.h ../dm.h $(GAME_H) | $(B)
 	clang -O1 -Wno-unused-function -I.. $(GINC) -o $@ t_audio_watchdog.c -framework AudioToolbox
 
-$(B)/t_hid: t_hid.c ../hle_hid.c ../pad_slots.h ../dm_input.h ../hle.h ../dm.h $(GAME_H) | $(B)
-	clang -O1 -Wall -Werror -Wno-unused-function -I.. $(GINC) -o $@ t_hid.c
+$(B)/t_hid: t_hid.c ../hle_hid.c ../hle_haptics.c ../hle_haptics.h ../pad_slots.h ../dm_input.h ../hle.h ../dm.h $(GAME_H) | $(B)
+	clang -O1 -Wall -Werror -Wno-unused-function -I.. $(GINC) -o $@ t_hid.c ../hle_haptics.c
 
 $(B)/t_audren_open: t_audren_open.c ../hle_audren.c ../hle.h ../dm.h $(GAME_H) | $(B)
 	clang -O1 -Wall -Werror -Wno-unused-function -I.. $(GINC) -o $@ t_audren_open.c
+
+$(B)/t_haptics: t_haptics.c ../hle_haptics.c ../hle_haptics.h ../dm_input.h | $(B)
+	clang -O1 -g -Wall -Werror -I.. -o $@ t_haptics.c ../hle_haptics.c
+$(B)/t_haptics_apple: t_haptics_apple.m ../haptics_apple.m ../haptics_apple.h ../hle_haptics.c ../hle_haptics.h | $(B)
+	clang -O1 -g -fobjc-arc -Wall -Werror -I.. -o $@ t_haptics_apple.m ../hle_haptics.c -framework Cocoa -framework GameController -framework CoreHaptics
+$(B)/t_gesture: t_gesture.c ../hle_touch.c ../front.h ../dm.h $(GAME_H) | $(B)
+	clang -O1 -Wall -Wno-unused-function -I.. $(GINC) -o $@ t_gesture.c ../hle_touch.c
+$(B)/t_nro: t_nro.c ../loader.c ../hle_ro.c ../hle.h ../dm.h $(GAME_H) | $(B)
+	clang -O1 -g -Wall -Wno-unused-function -Wno-deprecated-declarations -I.. $(GINC) -o $@ t_nro.c

@@ -11,6 +11,8 @@ enum LauncherText {
     static func note(env: String, fallback: String, language: String = Locale.preferredLanguages.first ?? "en") -> String {
         if language.lowercased().hasPrefix("ja"), !fallback.isEmpty {
             let japanese = [
+                "DM_RUMBLE": "ゲームからの振動をスマートフォンや接続したコントローラーで再生します。",
+                "DM_RUMBLE_GAIN": "ゲーム内の振動設定と組み合わせて強さを調整します。",
                 "DM_TOUCH_HAPTICS": "タッチ操作のボタンやスティックを押したときに軽く振動します。",
                 "DM_OPMODE": "携帯モードは低い解像度で描画するため、通常は GPU の負荷と消費電力を抑えられます。一部のゲームは携帯モードでのみタッチ操作に対応します。",
                 "DM_METAL_HUD": "ゲーム画面に Apple Metal のパフォーマンス情報を表示します：フレームレート、フレーム時間、GPU 時間、メモリ使用量。",
@@ -20,6 +22,8 @@ enum LauncherText {
             return japanese[env] ?? fallback
         }
         let notes = [
+            "DM_RUMBLE": "通过手机或已连接的手柄呈现游戏内震动。",
+            "DM_RUMBLE_GAIN": "配合游戏内的震动设置，调整游戏震动强度。",
             "DM_TOUCH_HAPTICS": "按下触屏按键或开始触摸摇杆时提供轻微震动反馈。",
             "DM_OPMODE": "掌机模式以较低分辨率渲染，通常能减轻 GPU 负担并节省电量；部分游戏仅在掌机模式下读取触屏操作。",
             "DM_METAL_HUD": "在游戏画面上显示 Apple Metal 性能面板：帧率、每帧耗时、GPU 耗时及内存。",

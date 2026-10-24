@@ -61,7 +61,11 @@ jobs:
           "$RUNNER_TEMP/t-photo-host"
           clang -fobjc-arc dm/ios/tests/t_pad_layout.m -framework Foundation -framework CoreGraphics -o "$RUNNER_TEMP/t-pad-layout"
           "$RUNNER_TEMP/t-pad-layout"
-          make -C dm/host/tests GAME=01006F8002326000 build/t_hid build/t_audren_open
+          make -C dm/host/tests GAME=01006F8002326000 build/t_hid build/t_audren_open build/t_haptics build/t_haptics_apple build/t_gesture build/t_nro
+          dm/host/tests/build/t_haptics
+          dm/host/tests/build/t_haptics_apple
+          dm/host/tests/build/t_gesture
+          dm/host/tests/build/t_nro
           dm/host/tests/build/t_hid
           dm/host/tests/build/t_audren_open
       - name: Install project generator

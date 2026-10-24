@@ -8,10 +8,10 @@ int front_ios_load_resources(const char *root);
 #import <AVFAudio/AVFAudio.h>
 #include <errno.h>
 #include <stdatomic.h>
-#include "dm_vibration.h"
 #include "front.h"
 #include "hle.h"
 #include "dm.h"
+#include "haptics_apple.h"
 
 UIView *dm_gamepad_view(CGRect frame);
 void dm_gamepad_reset(void);
@@ -23,25 +23,6 @@ static CAMetalLayer *g_layer;
 static void front_ios_power_watch(void);
 static void front_ios_audio_watch(void);
 static UILabel *front_ios_fps_label(void);
-
-static _Atomic int g_haptics_available;
-static UIImpactFeedbackGenerator *g_game_haptic;
-static NSTimer *g_haptic_timer;
-int front_vibration_available(void) { return atomic_load(&g_haptics_available); }
-static void game_haptics_start(void) {
-    if(g_haptic_timer)return;
-    int enabled=UIDevice.currentDevice.userInterfaceIdiom==UIUserInterfaceIdiomPhone;
-    const char *setting=getenv("DM_HAPTICS");if(setting&&!atoi(setting))enabled=0;
-    atomic_store(&g_haptics_available,enabled);if(!enabled)return;
-    g_game_haptic=[[UIImpactFeedbackGenerator alloc] initWithStyle:UIImpactFeedbackStyleMedium];
-    g_haptic_timer=[NSTimer timerWithTimeInterval:.05 repeats:YES block:^(NSTimer *timer){
-        (void)timer;
-        if(UIApplication.sharedApplication.applicationState!=UIApplicationStateActive||NSProcessInfo.processInfo.thermalState>=NSProcessInfoThermalStateSerious){dm_vibration_reset();return;}
-        float value=dm_vibration_take(now_ns());
-        if(value>0)[g_game_haptic impactOccurredWithIntensity:.15+.6*value];
-    }];
-    [[NSRunLoop mainRunLoop] addTimer:g_haptic_timer forMode:NSRunLoopCommonModes];
-}
 
 @interface DmGameView : UIView
 @end
@@ -94,7 +75,7 @@ static void launcher_done(void) { [g_root startGame]; }
     front_ios_boot();
 }
 - (void)setupGame {
-    game_haptics_start();
+    dm_haptics_apple_init();
     front_ios_audio_watch();
     self.game = [[DmGameView alloc] initWithFrame:self.view.bounds];
     [self.view addSubview:self.game];
