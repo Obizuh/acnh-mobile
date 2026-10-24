@@ -174,6 +174,70 @@ private struct LauncherView: View {
     }
 }
 
+// Keep the settings covered while the initial system orientation transition settles.
+// This does not disable SpringBoard's animation or change subsequent device rotation.
+private final class LandscapeLauncherController: UIHostingController<LauncherView> {
+    private var startupCover: UIView?
+    private var settleLink: CADisplayLink?
+    private var appearedAt: CFTimeInterval = 0
+    private var stableSince: CFTimeInterval?
+    private var transitioning = false
+    private var revealed = false
+
+    override var supportedInterfaceOrientations: UIInterfaceOrientationMask { .landscape }
+    override var preferredInterfaceOrientationForPresentation: UIInterfaceOrientation {
+        let current = presentingViewController?.view.window?.windowScene?.interfaceOrientation
+        return current?.isLandscape == true ? current! : .landscapeRight
+    }
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        guard !revealed, startupCover == nil else { return }
+        let cover = UIView(frame: view.bounds)
+        cover.backgroundColor = .black
+        cover.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        view.addSubview(cover)
+        startupCover = cover
+    }
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        guard !revealed, settleLink == nil else { return }
+        appearedAt = CACurrentMediaTime()
+        let link = CADisplayLink(target: self, selector: #selector(checkStartupOrientation))
+        settleLink = link
+        link.add(to: .main, forMode: .common)
+    }
+    override func viewWillTransition(to size: CGSize, with coordinator: UIViewControllerTransitionCoordinator) {
+        super.viewWillTransition(to: size, with: coordinator)
+        guard !revealed else { return }
+        transitioning = true
+        stableSince = nil
+        coordinator.animate(alongsideTransition: nil) { [weak self] _ in
+            self?.transitioning = false
+            self?.stableSince = nil
+        }
+    }
+    @objc private func checkStartupOrientation() {
+        let now = CACurrentMediaTime()
+        let landscape = view.window?.windowScene?.interfaceOrientation.isLandscape == true && view.bounds.width > view.bounds.height
+        let ready = UIApplication.shared.applicationState == .active && landscape && !transitioning
+        if ready { if stableSince == nil { stableSince = now } } else { stableSince = nil }
+        let settled = stableSince.map { now - $0 >= 0.18 } ?? false
+        // Bounded fallback: an unusual container lifecycle must not leave a permanent black screen.
+        guard (settled && now - appearedAt >= 0.4) || now - appearedAt >= 2 else { return }
+        revealed = true
+        settleLink?.invalidate()
+        settleLink = nil
+        UIView.performWithoutAnimation { startupCover?.removeFromSuperview() }
+        startupCover = nil
+        fputs("launcher: startup cover removed (landscape=\(landscape), settled=\(settled))\n", stderr)
+    }
+    override func viewDidDisappear(_ animated: Bool) {
+        super.viewDidDisappear(animated)
+        settleLink?.invalidate()
+        settleLink = nil
+    }
+}
+
 // Shows the launcher over the root view controller and calls done once the settings are in the environment; false (done is not called) when there is no launcher
 @_cdecl("dm_show_launcher")
 public func dmShowLauncher(_ viewController: UnsafeMutableRawPointer, _ done: @convention(c) () -> Void) -> Bool {
@@ -192,7 +256,7 @@ public func dmShowLauncher(_ viewController: UnsafeMutableRawPointer, _ done: @c
         model.apply()
         h.dismiss(animated: false) { done() }
     }
-    let h = UIHostingController(rootView: view)
+    let h = LandscapeLauncherController(rootView: view)
     h.modalPresentationStyle = .fullScreen
     host = h
     parent.present(h, animated: false)
