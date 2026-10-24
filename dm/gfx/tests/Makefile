@@ -149,3 +149,6 @@ t_clear_ds: t_clear_ds.m $(MTL_T_DEP)
 
 t_upgrade_alias: t_upgrade_alias.m $(MTL_T_DEP)
 	clang $(CFLAGS) -fobjc-arc -o $@ t_upgrade_alias.m $(MTL_T_SRC) $(FW)
+
+t_stencil_view: t_stencil_view.m $(MTL_T_DEP)
+	clang $(CFLAGS) -fobjc-arc -o $@ t_stencil_view.m $(MTL_T_SRC) $(FW)

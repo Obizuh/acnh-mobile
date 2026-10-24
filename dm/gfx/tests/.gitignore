@@ -68,3 +68,5 @@ t_integer_blend
 t_primitive_restart
 t_clear_ds
 t_upgrade_alias
+
+t_stencil_view
