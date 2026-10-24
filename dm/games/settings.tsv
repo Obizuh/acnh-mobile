@@ -15,3 +15,4 @@ DM_METAL_HUD	toggle	-	0	always	Performance HUD	Apple's Metal HUD over the game: 
 ACNH_CONTROLLER_LAYOUT	choice	generic=Generic,acnh=Dedicated,custom=Custom	acnh	always	Controller layout
 ACNH_AUDIO_IGNORE_SILENT	toggle	-	0	always	Play sound in silent mode
 ACNH_CUSTOM_BASE	choice	generic=Generic,acnh=Dedicated	acnh	always	Customize from
+DM_TOUCH_HAPTICS	toggle	-	1	always	Touch feedback	Haptic clicks when pressing touch controls.

@@ -129,3 +129,8 @@ t_geometry: t_geometry.m $(MTL_T_DEP)
 
 t_alpha: t_alpha.m $(MTL_T_DEP)
 	clang $(CFLAGS) -fobjc-arc -o $@ t_alpha.m $(MTL_T_SRC) $(FW)
+
+t_readback: t_readback.m $(MTL_T_DEP)
+	clang $(CFLAGS) -fobjc-arc -o $@ t_readback.m $(filter-out ../nvn/hle_nvn.c,$(MTL_T_SRC)) $(FW)
+t_linear_readback: t_linear_readback.m $(MTL_T_DEP)
+	clang $(CFLAGS) -fobjc-arc -o $@ t_linear_readback.m $(filter-out ../nvn/hle_nvn.c,$(MTL_T_SRC)) $(FW)
