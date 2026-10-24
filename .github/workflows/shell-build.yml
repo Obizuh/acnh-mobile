@@ -44,6 +44,7 @@ jobs:
           python tools/test_shell.py
           python tools/test_one_click.py
           python tools/test_prepare_game.py
+          python tools/test_nro_embed.py
           python tools/test_album_save.py
           python tools/test_launcher.py
           python tools/test_own_compilers.py
