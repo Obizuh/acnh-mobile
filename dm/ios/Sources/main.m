@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <unistd.h>
 #include "../../host/acnh_data.h"
+#include "../../host/directory_visibility.h"
 #include "game_profile.h"   // game profile constants (the RomFS marker path)
 
 int dm_main(int argc, char **argv);   // dm/host/main.c compiled in with -Dmain=dm_main
@@ -26,7 +27,7 @@ static NSString *romfs_locate(void) {
 
 // Boot prerequisites (done before UIApplicationMain): directories / environment variables / log -- the host's early load reads these
 static int boot_env(void) {
-    setenv("ACNH_HIDE_SAVE_WORK","1",0);
+    setenv("ACNH_HIDE_RUNTIME_DIRS","1",0);
     NSFileManager *fm = NSFileManager.defaultManager;
     NSString *doc = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES)[0];
     NSString *res = NSBundle.mainBundle.resourcePath;
@@ -40,6 +41,8 @@ static int boot_env(void) {
     NSString *log = [doc stringByAppendingPathComponent:@"log.txt"], *prev = [doc stringByAppendingPathComponent:@"log.prev.txt"];
     [fm removeItemAtPath:prev error:nil]; [fm moveItemAtPath:log toPath:prev error:nil];
     if (freopen(log.fileSystemRepresentation, "w", stderr)) setvbuf(stderr, NULL, _IOLBF, 0);
+    if(dm_directory_hidden([doc stringByAppendingPathComponent:@"temp"].fileSystemRepresentation,1))
+        fprintf(stderr,"boot: temp hidden attribute could not be set: %s\n",strerror(errno));
     // Environment switch files (for on-device diagnostics: a sideloaded app cannot be given environment variables from outside): one KEY=VALUE per line, # starts a comment; Documents/env.txt takes precedence over dm/env.txt in the bundle (put there by build_ipa.sh's DM_ENV_FILE)
     NSMutableArray<NSString *> *from_file=[NSMutableArray array];
     for (NSString *ef in @[[doc stringByAppendingPathComponent:@"env.txt"], [[res stringByAppendingPathComponent:@"dm"] stringByAppendingPathComponent:@"env.txt"]]) {
