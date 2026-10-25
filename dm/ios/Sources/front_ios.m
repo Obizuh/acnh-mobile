@@ -117,7 +117,7 @@ static void launcher_done(void) { [g_root startGame]; }
         if(error){self.loadLabel.text=error;return;}
         dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED,0),^{
             int ok=front_ios_load_resources(folder.fileSystemRepresentation);
-            dispatch_async(dispatch_get_main_queue(),^{if(!ok){self.loadLabel.text=@"资源启动失败，请查看 log.txt。";return;}self.launched=YES;g_root=self;
+            dispatch_async(dispatch_get_main_queue(),^{if(!ok){self.loadLabel.text=@"资源启动失败，请查看 logs/log.txt。";return;}self.launched=YES;g_root=self;
                 if(!dm_show_launcher((__bridge void *)self,launcher_done))[self startGame];});
         });
     });

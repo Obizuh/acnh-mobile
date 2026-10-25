@@ -58,21 +58,21 @@ static void probeMessage(NSString *message) {
     NSString *identifier=nil;NSInteger permission=probeEntitlement(&identifier);
     LOG("[nfc-probe] process=%s TAG-entitlement=%ld readingAvailable=%d",identifier.UTF8String?:"unknown",(long)permission,NFCTagReaderSession.readingAvailable);
     if(permission!=1){
-        probeMessage(permission==0?@"当前运行进程没有 NFC（TAG）签名权限，不能启动实体卡扫描。\n\n直接安装时需要游戏的签名包含权限；通过 LiveContainer 运行时需要容器本体具备权限。\n\n可以退出扫描后重进，选择“导入 amiibo 文件”，不需要 NFC 权限。结果已记入 log.txt。":@"未能确认当前运行宿主的 NFC 签名权限，本次没有启动扫描。结果已记入 log.txt。");return;
+        probeMessage(permission==0?@"当前运行进程没有 NFC（TAG）签名权限，不能启动实体卡扫描。\n\n直接安装时需要游戏的签名包含权限；通过 LiveContainer 运行时需要容器本体具备权限。\n\n可以退出扫描后重进，选择“导入 amiibo 文件”，不需要 NFC 权限。结果已记入 logs/log.txt。":@"未能确认当前运行宿主的 NFC 签名权限，本次没有启动扫描。结果已记入 logs/log.txt。");return;
     }
-    if(!NFCTagReaderSession.readingAvailable){probeMessage(@"当前设备或系统不提供 NFC 标签读取。结果已记入 log.txt。");return;}
+    if(!NFCTagReaderSession.readingAvailable){probeMessage(@"当前设备或系统不提供 NFC 标签读取。结果已记入 logs/log.txt。");return;}
     // LiveContainer replaces mainBundle with the guest. Check the actual signing
     // identity's bundle too: a guest purpose string cannot configure the host.
     NSBundle *host=identifier.length?[NSBundle bundleWithIdentifier:identifier]:nil;
     if(!host && [NSBundle.mainBundle.bundleIdentifier isEqualToString:identifier])host=NSBundle.mainBundle;
     NSString *purpose=[host objectForInfoDictionaryKey:@"NFCReaderUsageDescription"];
-    if(![purpose isKindOfClass:NSString.class] || !purpose.length){LOG("[nfc-probe] host purpose missing or host bundle unknown");probeMessage(@"未能确认运行宿主包含 NFC 用途说明，未启动扫描。需要宿主同时具备 NFC 签名权限和用途说明。结果已记入 log.txt。");return;}
+    if(![purpose isKindOfClass:NSString.class] || !purpose.length){LOG("[nfc-probe] host purpose missing or host bundle unknown");probeMessage(@"未能确认运行宿主包含 NFC 用途说明，未启动扫描。需要宿主同时具备 NFC 签名权限和用途说明。结果已记入 logs/log.txt。");return;}
     self.result=nil;self.reading=NO;
     @try{
         self.session=[[NFCTagReaderSession alloc] initWithPollingOption:NFCPollingISO14443 delegate:self queue:dispatch_get_main_queue()];
         self.session.alertMessage=@"请将一张卡片靠近 iPhone 顶部。仅做只读测试，暂不用于游戏召唤。";
         [self.session beginSession];LOG("[nfc-probe] beginSession requested");
-    }@catch(NSException *exception){self.session=nil;LOG("[nfc-probe] session exception=%s",exception.name.UTF8String);probeMessage(@"系统未能开启 NFC 扫描，结果已记入 log.txt。");}
+    }@catch(NSException *exception){self.session=nil;LOG("[nfc-probe] session exception=%s",exception.name.UTF8String);probeMessage(@"系统未能开启 NFC 扫描，结果已记入 logs/log.txt。");}
 }
 - (void)stop {
     self.requested=NO;self.reading=NO;self.result=nil;
@@ -88,7 +88,7 @@ static void probeMessage(NSString *message) {
     LOG("[nfc-probe] session ended domain=%s code=%ld completed=%d",error.domain.UTF8String,(long)error.code,result!=nil);
     NSString *message=result;
     if(!message && error.code!=NFCReaderSessionInvalidationErrorUserCanceled){
-        message=[NSString stringWithFormat:@"系统未完成 NFC 读卡（错误 %ld）。\n\n结果已记入 log.txt；这不是游戏已识别 amiibo。",(long)error.code];
+        message=[NSString stringWithFormat:@"系统未完成 NFC 读卡（错误 %ld）。\n\n结果已记入 logs/log.txt；这不是游戏已识别 amiibo。",(long)error.code];
     }
     if(message)dispatch_after(dispatch_time(DISPATCH_TIME_NOW,400*NSEC_PER_MSEC),dispatch_get_main_queue(),^{if(self.requested)probeMessage(message);});
 }
@@ -109,7 +109,7 @@ static void probeMessage(NSString *message) {
         [tag.asNFCMiFareTag sendMiFareCommand:[NSData dataWithBytes:command length:2] completionHandler:^(NSData *data,NSError *readError){dispatch_async(dispatch_get_main_queue(),^{
             if(self.session!=session)return;
             LOG("[nfc-probe] read test bytes=%lu error-domain=%s code=%ld",(unsigned long)data.length,readError.domain.UTF8String?:"none",(long)readError.code);
-            self.result=(!readError && data.length==16)?@"实体 NFC 读卡通道测试成功：已读取16字节测试页。\n\n本测试未写卡，也尚未把数据传给游戏；还不能用它召唤角色。":@"检测到标签，但未完成测试页读取。请把 log.txt 发来排查。";
+            self.result=(!readError && data.length==16)?@"实体 NFC 读卡通道测试成功：已读取16字节测试页。\n\n本测试未写卡，也尚未把数据传给游戏；还不能用它召唤角色。":@"检测到标签，但未完成测试页读取。请把 logs/log.txt 发来排查。";
             [session invalidateSession];
         });}];
     });}];

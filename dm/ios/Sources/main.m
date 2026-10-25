@@ -1,6 +1,7 @@
-// iOS App entry: set the environment (game files, saves, shader libraries), write the host log to Documents/log.txt, create the window (front_ios.m), then run the host's dm_main on a big-stack thread.
+// iOS App entry: set the environment (game files, saves, shader libraries), write the host log to Documents/logs/log.txt, create the window (front_ios.m), then run the host's dm_main on a big-stack thread.
 // The game files (RomFS) ship inside the App at <App>/romfs; Documents/romfs placed through the Files app is also accepted (lets you swap them without reinstalling).
 #import <UIKit/UIKit.h>
+#import "ACNHLogFiles.h"
 #include <pthread.h>
 #include <signal.h>
 #include <stdio.h>
@@ -37,10 +38,13 @@ static int boot_env(void) {
         NSURL *u = [NSURL fileURLWithPath:[doc stringByAppendingPathComponent:d] isDirectory:YES]; NSError *e = nil;
         if ([fm fileExistsAtPath:u.path] && ![u setResourceValue:@YES forKey:NSURLIsExcludedFromBackupKey error:&e]) fprintf(stderr, "boot: %s could not be excluded from backup: %s\n", d.UTF8String, e.localizedDescription.UTF8String);
     }
-    // Log: the host only writes to stderr; redirect it to Documents/log.txt (the previous one is kept as log.prev.txt), retrieve it from the Files app when something goes wrong
-    NSString *log = [doc stringByAppendingPathComponent:@"log.txt"], *prev = [doc stringByAppendingPathComponent:@"log.prev.txt"];
+    // Keep diagnostics together, with safe migration from older app versions.
+    NSError *logError=nil;
+    NSString *logs=acnh_prepare_logs(doc,&logError) ?: doc;
+    NSString *log = [logs stringByAppendingPathComponent:@"log.txt"], *prev = [logs stringByAppendingPathComponent:@"log.prev.txt"];
     [fm removeItemAtPath:prev error:nil]; [fm moveItemAtPath:log toPath:prev error:nil];
     if (freopen(log.fileSystemRepresentation, "w", stderr)) setvbuf(stderr, NULL, _IOLBF, 0);
+    if(logError)fprintf(stderr,"boot: log migration failed: %s; using %s\n",logError.localizedDescription.UTF8String,logs.fileSystemRepresentation);
     if(dm_directory_hidden([doc stringByAppendingPathComponent:@"temp"].fileSystemRepresentation,1))
         fprintf(stderr,"boot: temp hidden attribute could not be set: %s\n",strerror(errno));
     // Environment switch files (for on-device diagnostics: a sideloaded app cannot be given environment variables from outside): one KEY=VALUE per line, # starts a comment; Documents/env.txt takes precedence over dm/env.txt in the bundle (put there by build_ipa.sh's DM_ENV_FILE)
@@ -54,6 +58,7 @@ static int boot_env(void) {
             if (!getenv(k.UTF8String)) { setenv(k.UTF8String, v.UTF8String, 0); [from_file addObject:k]; fprintf(stderr, "boot: env %s=%s (%s)\n", k.UTF8String, v.UTF8String, ef.lastPathComponent.UTF8String); }
         }
     }
+    setenv("DM_PSO_USER",[logs stringByAppendingPathComponent:@"pso_user.tsv"].fileSystemRepresentation,0);
     setenv("DM_ENV_FILE_KEYS",[from_file componentsJoinedByString:@" "].UTF8String,1);
     if(getenv("DM_METAL_HUD") && atoi(getenv("DM_METAL_HUD")))setenv("MTL_HUD_ENABLED","1",0);
     // Game language (nn::oe::GetDesiredLanguage, hle_oe.c): the one the IPA was packed with (the NSP script's LANGUAGE / --language → DMLanguage in Info.plist), unless an env file sets DM_LANG
