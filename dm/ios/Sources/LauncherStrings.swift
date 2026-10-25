@@ -11,6 +11,7 @@ enum LauncherText {
     static func note(env: String, fallback: String, language: String = Locale.preferredLanguages.first ?? "en") -> String {
         if language.lowercased().hasPrefix("ja"), !fallback.isEmpty {
             let japanese = [
+                "DM_PRESENT_SNAP": "カクつきを軽減する場合がありますが、表示の遅延が増えます。",
                 "DM_RUMBLE": "ゲームからの振動をスマートフォンや接続したコントローラーで再生します。",
                 "DM_RUMBLE_GAIN": "ゲーム内の振動設定と組み合わせて強さを調整します。",
                 "DM_TOUCH_HAPTICS": "タッチ操作のボタンやスティックを押したときに軽く振動します。",
@@ -22,6 +23,7 @@ enum LauncherText {
             return japanese[env] ?? fallback
         }
         let notes = [
+            "DM_PRESENT_SNAP": "可能减少卡顿，但会增加显示延迟。",
             "DM_RUMBLE": "通过手机或已连接的手柄呈现游戏内震动。",
             "DM_RUMBLE_GAIN": "配合游戏内的震动设置，调整游戏震动强度。",
             "DM_TOUCH_HAPTICS": "按下触屏按键或开始触摸摇杆时提供轻微震动反馈。",

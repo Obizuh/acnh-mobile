@@ -1,6 +1,6 @@
 # ACNH Mobile
 
-**0.3.38 · build 40 — official Metal 4 edition, iOS 26+.**
+**0.3.40 · build 42 — official Metal 4 edition, iOS 26+.**
 
 A native compatibility runtime for Animal Crossing: New Horizons 3.0.3. The runtime and shader translation sources are based on [NXNative](https://github.com/seedds/nxnative) commit `e72a06510e6dfff4a77c49fd205a82e21cad0786`.
 
@@ -8,7 +8,7 @@ This edition uses the official Metal 4 replay path and matching shader chain. It
 
 [简体中文](README.zh-CN.md) · [Shell guide](docs/SHELL.md) · [Build guide](docs/BUILD.md)
 
-Updates upstream memory mapping consistency, pipeline scissor restoration, geometry capture and scratch-buffer lifetime, and Mac focus handling. Diagnostics now live in logs and existing files are migrated. Existing personalization, controls, photo export, text input and .data are preserved. See [release notes](docs/RELEASE-v0.3.38.zh-CN.md).
+Updates upstream upload staging, readback lifetime, dirty-page races and display-link recovery, and includes the approved optional frame buffering. The native navigation list keeps Frame buffering inside Personalization, off by default. Self-contained Mac app packaging is available. Existing personalization, controls, photo export, text input and .data are preserved. See [release notes](docs/RELEASE-v0.3.40.zh-CN.md).
 
 ## Downloads
 
@@ -43,3 +43,7 @@ Credits and licenses: [NXNative](https://github.com/seedds/nxnative), [D2R Mobil
 ## Local launchers
 
 Two root `.command` launchers build a private IPA or a private IPA plus external data. Choose your own game folder and prod.keys to extract, rewrite and translate official Metal shaders, with automatic dependency installation; existing prepared inputs can also be reused; see [local launcher guide](docs/ONE-CLICK.zh-CN.md).
+
+## Mac app
+
+Build a standalone `.app` with `./setup.sh mac-app`, using your own game and keys or matching prepared Mac inputs. [Chinese tutorial](docs/MAC-APP.zh-CN.md).

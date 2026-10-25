@@ -4,6 +4,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
+import json
 from prepare_game import load_pipeline
 from shader_tables import chain_header, validate_cache, ensure_tables, TITLE
 
@@ -39,3 +40,34 @@ def build(root, patched, romfs, shaders, font, work, launch=False):
     if launch:
         subprocess.run(['bash', str(script)], check=True)
     return script
+
+
+def pack(root, patched, romfs, shaders, font, work, output, sign='-', env_file=None):
+    """Use the upstream standalone launcher/packer with this project's prepared inputs."""
+    root, patched, romfs, shaders, font, work, output = map(lambda p: Path(p).expanduser().resolve(),
+                                                        (root, patched, romfs, shaders, font, work, output))
+    if output.suffix != '.app':
+        raise ValueError('--output must end with .app')
+    # The upstream packer replaces an existing app atomically. Refuse unrelated folders.
+    if output.exists():
+        import plistlib
+        info = output / 'Contents/Info.plist'
+        if not info.is_file() or plistlib.loads(info.read_bytes()).get('CFBundleIdentifier') != 'org.acnhmobile.experimental':
+            raise ValueError('Refusing to replace an unrelated existing output: ' + str(output))
+    if env_file is not None:
+        env_file = Path(env_file).expanduser().resolve()
+        if not env_file.is_file():
+            raise ValueError('Missing --env-file')
+    build(root, patched, romfs, shaders, font, work)
+    sys.path.insert(0, str(root / 'dm/games'))
+    import game
+    g = game.load(TITLE)
+    version = json.loads((root / 'config/version.json').read_text())
+    pipeline = load_pipeline()
+    pipeline.mac_app(sys.executable, root, output, int(TITLE, 16), work, romfs.parent,
+                     patched, work / 'tools/dmhost', work / 'font', shaders, None, 'nvn',
+                     'zh-Hans', g, 'ACNH Mobile', version['version'],
+                     'org.acnhmobile.experimental', root / 'dm/ios/Resources/AppIcon.png',
+                     sign, dict(os.environ, DM_GAME=TITLE), work / 'logs', str(env_file or ''))
+    print('Mac app: ' + str(output))
+    return output

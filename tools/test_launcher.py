@@ -7,10 +7,16 @@ sys.dont_write_bytecode=True
 ROOT=Path(__file__).resolve().parents[1]
 spec=importlib.util.spec_from_file_location('launcher_settings',ROOT/'dm/games/settings.py');settings=importlib.util.module_from_spec(spec);spec.loader.exec_module(settings)
 class LauncherTests(unittest.TestCase):
+    def setUp(self):
+        env = patch.dict(os.environ, {'GFXAPI':'nvn'}); env.start(); self.addCleanup(env.stop)
     def test_acnh_hides_unimplemented_fps_and_scale(self):
         with tempfile.TemporaryDirectory() as t:
             d=settings.build('01006F8002326000',t,Path(t)/'missing.nacp')
-            self.assertEqual({s['env'] for s in d['settings']},{'DM_OPMODE','DM_SHOW_FPS','DM_METAL_HUD','ACNH_CONTROLLER_LAYOUT','ACNH_AUDIO_IGNORE_SILENT','ACNH_CUSTOM_BASE','DM_TOUCH_HAPTICS','DM_RUMBLE','DM_RUMBLE_GAIN'})
+            self.assertEqual({s['env'] for s in d['settings']},{'DM_PRESENT_SNAP','DM_OPMODE','DM_SHOW_FPS','DM_METAL_HUD','ACNH_CONTROLLER_LAYOUT','ACNH_AUDIO_IGNORE_SILENT','ACNH_CUSTOM_BASE','DM_TOUCH_HAPTICS','DM_RUMBLE','DM_RUMBLE_GAIN'})
+    def test_frame_buffering_is_opt_in(self):
+        with tempfile.TemporaryDirectory() as t:
+            row = next(s for s in settings.build('01006F8002326000', t, Path(t)/'missing.nacp')['settings'] if s['env']=='DM_PRESENT_SNAP')
+            self.assertEqual((row['kind'],row['default']), ('toggle','0'))
     def test_touch_feedback_default(self):
         with tempfile.TemporaryDirectory() as t:
             row=next(s for s in settings.build('01006F8002326000',t,Path(t)/'missing.nacp')['settings'] if s['env']=='DM_TOUCH_HAPTICS')

@@ -70,3 +70,10 @@ t_clear_ds
 t_upgrade_alias
 
 t_stencil_view
+
+t_present_snap
+t_pool_lifetime
+
+t_upload_budget
+t_present_rescue
+t_present_rescue_focus

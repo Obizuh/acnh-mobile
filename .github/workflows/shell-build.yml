@@ -52,6 +52,8 @@ jobs:
           python dm/gfx/tools/test_upstream_shader.py
           python tools/test_nsp_chain.py
           python tools/test_nsp_mac.py
+          python dm/tools/tests/test_nsp_mac_app.py
+          python dm/tools/tests/test_launcher_settings.py
           python dm/tools/tests/test_patches.py
           python tools/test_shader_tables.py
           clang -Wall -Wextra -Werror dm/ios/tests/t_touch_feedback.c -o "$RUNNER_TEMP/t-touch-feedback"
