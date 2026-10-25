@@ -17,7 +17,7 @@ int main(void) { @autoreleasepool {
     CHECK(reader != nil, "synthetic plane reader compiles");
     if (!reader) return 1;
     id<MTLCommandQueue> queue = [g_dev newCommandQueue];
-    struct { int mid; p_scissor sc; int depth, mask; const char *label; } cases[] = {
+    struct { int mid; p_scissor sc; int depth, mask; const char *label; int small_color; } cases[] = {
         {0, {2,1,3,2}, 1, 0, "outside-pass scissored depth clear"},
         {0, {2,1,3,2}, 0, 255, "outside-pass scissored stencil clear"},
         {0, {0,0,8,8}, 0, 15, "outside-pass masked stencil clear"},
@@ -26,6 +26,7 @@ int main(void) { @autoreleasepool {
         {0, {2,1,0,2}, 1, 255, "empty scissor writes nothing"},
         {0, {-1,-1,3,3}, 1, 15, "negative scissor origin is clamped"},
         {0, {0,0,8,8}, 1, 255, "full clear remains a load action"},
+        {0, {0,0,8,8}, 1, 255, "full depth/stencil clear beside a smaller color target", 1},
     };
     for (unsigned i=0; i<sizeof cases/sizeof *cases; i++) {
         tex_t t = {.magic=MAGIC('T','E','X',0), .serial=99401+i};
@@ -44,12 +45,21 @@ int main(void) { @autoreleasepool {
         res_add(base); mtl_tex_init(&t); serial_put(t.serial, base);
         state_reset(); memset(&R,0,sizeof R); mtl_sub_begin();
         R.has_rt=1; R.rt.depth=&t; R.has_sc=1; R.sc=cases[i].sc;
+        tex_t color = {.magic=MAGIC('T','E','X',0), .serial=99501+i};
+        if(cases[i].small_color){
+            color.d=(nvn_texdesc){.target=NVN_TEXTURE_TARGET_2D,.format=NVN_FORMAT_RGBA8,.width=2,.height=2,.depth=1,.levels=1,.samples=1};
+            id<MTLTexture> small=[g_dev newTextureWithDescriptor:tex_desc(&color,0)];
+            res_add(small);mtl_tex_init(&color);serial_put(color.serial,small);
+            R.rt.n=1;R.rt.color[0]=&color;
+        }
         if (cases[i].mid) CHECK(rp_begin() != nil, "preexisting render pass opens");
         struct { op_hdr head; p_clear_ds clear; op_hdr end; } ops = {0};
         ops.head=(op_hdr){OP_CLEAR_DS, sizeof(op_hdr)+sizeof(p_clear_ds)};
         ops.clear=(p_clear_ds){.depth=.25, .depth_mask=cases[i].depth, .stencil=0x3c, .stencil_mask=cases[i].mask};
         ops.end=(op_hdr){OP_END,sizeof(op_hdr)};
-        mtl_exec((const uint8_t *)&ops); mtl_sub_commit(); mtl_drain();
+        mtl_exec((const uint8_t *)&ops);
+        if(cases[i].small_color)CHECK(rp_begin()!=nil,"mixed-size render pass opens after the pending clear");
+        mtl_sub_commit(); mtl_drain();
         CHECK(!mtl_last_commit_error(), "production clear completes without GPU error");
         id<MTLTexture> stencil = [base newTextureViewWithPixelFormat:MTLPixelFormatX32_Stencil8];
         id<MTLBuffer> result = [g_dev newBufferWithLength:64*8 options:MTLResourceStorageModeShared];
@@ -67,6 +77,7 @@ int main(void) { @autoreleasepool {
         CHECK(valid,cases[i].label);
         printf("case %u: %s %s\n",i,cases[i].label,valid?"PASS":"FAIL");
         mtl_tex_release(&t);
+        if(cases[i].small_color)mtl_tex_release(&color);
     }
     printf("partial depth/stencil clears: %d checks, %d failed\n",checks,failed);
     return failed!=0;

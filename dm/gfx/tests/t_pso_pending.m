@@ -337,6 +337,22 @@ static void test_nil_prediction_falls_back_then_predicts(void) {
     g_exec_next = NULL; reset_queue(); reset_pso_cache();
 }
 
+// Look-ahead scans later scissors but must leave the demanded draw's clip unchanged.
+static void test_prediction_preserves_scissor(void) {
+    for (int enabled = 0; enabled <= 1; enabled++) {
+        p_scissor original = {3, 5, 101, 79}, later = {60, 70, 8, 9};
+        R.sc = original; R.has_sc = enabled;
+        uint8_t stream[128] = {0}; size_t used = 0;
+        append_op(stream, &used, OP_SCISSOR, &later, sizeof later);
+        append_op(stream, &used, OP_END, NULL, 0);
+        g_exec_next = stream;
+        pso_predict_rest();
+        EXPECT_TRUE("lookahead preserves the demanded draw scissor rectangle", !memcmp(&R.sc, &original, sizeof original));
+        EXPECT_EQ("lookahead preserves whether the demanded draw has a scissor", enabled, R.has_sc);
+    }
+    g_exec_next = NULL;
+}
+
 int main(void) {
     @autoreleasepool {
         setvbuf(stdout, NULL, _IONBF, 0);
@@ -345,6 +361,7 @@ int main(void) {
         test_two_active_exact_take_and_release();
         test_full_table_reclaims_done_not_running();
         test_nil_prediction_falls_back_then_predicts();
+        test_prediction_preserves_scissor();
         printf("== %d PSO pending checks, %d failed ==\n", g_checks, g_failed);
         return g_failed != 0;
     }

@@ -87,3 +87,36 @@ $(B)/t_gesture: t_gesture.c ../hle_touch.c ../front.h ../dm.h $(GAME_H) | $(B)
 	clang -O1 -Wall -Wno-unused-function -I.. $(GINC) -o $@ t_gesture.c ../hle_touch.c
 $(B)/t_nro: t_nro.c ../loader.c ../hle_ro.c ../hle.h ../dm.h $(GAME_H) | $(B)
 	clang -O1 -g -Wall -Wno-unused-function -Wno-deprecated-declarations -I.. $(GINC) -o $@ t_nro.c
+
+PYTHON ?= python3
+
+MEM_FLAGS = -O1 -Wall -Werror -Wno-unused-function -Imemory_profile -I..
+MEM_DEPS = t_svc_memory.c memory_profile/game_profile.h ../hle_svc.c ../hle_guestthread.c ../hle.h ../dm.h
+$(B)/t_svc_memory: $(MEM_DEPS) | $(B)
+	clang $(MEM_FLAGS) -fsanitize=undefined -o $@ t_svc_memory.c
+$(B)/t_svc_memory_unlimited: $(MEM_DEPS) | $(B)
+	clang $(MEM_FLAGS) -fsanitize=undefined -DDM_GAME_MEM_MAP_LIMIT=0 -o $@ t_svc_memory.c
+$(B)/t_svc_memory_16k: $(MEM_DEPS) | $(B)
+	clang $(MEM_FLAGS) -fsanitize=address,undefined -DTEST_PAGE_16K -o $@ t_svc_memory.c
+$(B)/t_svc_memory_tsan: $(MEM_DEPS) | $(B)
+	clang $(MEM_FLAGS) -fsanitize=thread -o $@ t_svc_memory.c
+$(B)/t_svc_memory_dirty: $(MEM_DEPS) ../../gfx/nvn/nvn_dirty.c ../../gfx/nvn/nvn_dirty.h | $(B)
+	clang $(MEM_FLAGS) -DTEST_REAL_DIRTY -o $@ t_svc_memory.c ../../gfx/nvn/nvn_dirty.c
+.PHONY: memory memory-tsan memory-dirty memory-profile
+memory: $(B)/t_svc_memory $(B)/t_svc_memory_unlimited $(B)/t_svc_memory_16k
+	$(B)/t_svc_memory
+	$(B)/t_svc_memory_unlimited
+	$(B)/t_svc_memory_16k
+memory-tsan: $(B)/t_svc_memory_tsan
+	$(B)/t_svc_memory_tsan
+memory-dirty: $(B)/t_svc_memory_dirty
+	$(B)/t_svc_memory_dirty
+memory-profile: $(B)/t_svc_memory
+	$(PYTHON) test_memory_profile.py
+run: memory memory-dirty memory-profile
+
+$(B)/t_heap_size: t_heap_size.c ../hle_svc.c ../dm.h $(GAME_H) | $(B)
+	clang -O1 -Wall -Werror -Wno-unused-function -fsanitize=undefined -I.. $(GINC) -o $@ t_heap_size.c
+heap_size: $(B)/t_heap_size
+	$(B)/t_heap_size
+run: heap_size

@@ -100,6 +100,13 @@ static void launcher_done(void) { [g_root startGame]; }
 - (void)viewDidAppear:(BOOL)a {
     [super viewDidAppear:a];UIApplication.sharedApplication.idleTimerDisabled=YES;
     if(self.preparing || self.game)return;self.preparing=YES;
+    // Make the shared Documents directory nonempty even before game resources
+    // are imported (and in a game-free shell), so Files has a visible target.
+    NSString *doc=NSSearchPathForDirectoriesInDomains(NSDocumentDirectory,NSUserDomainMask,YES).firstObject;
+    NSError *directoryError=nil;
+    if(![NSFileManager.defaultManager createDirectoryAtPath:[doc stringByAppendingPathComponent:@"ACNHMobile"] withIntermediateDirectories:YES attributes:nil error:&directoryError]){
+        self.loadLabel.text=[NSString stringWithFormat:@"无法创建数据目录：%@",directoryError.localizedDescription];return;
+    }
 #ifdef DM_SHELL
     if (![NSBundle.mainBundle pathForResource:@"Guest" ofType:nil inDirectory:@"Frameworks/Guest.framework"]) {
         self.loadLabel.text=@"这是无游戏空壳。请在电脑上使用自己的游戏程序、配套着色器和字体补包，再整包签名安装。仅导入 .data 无法启动。详情见 docs/SHELL.zh-CN.md。";
@@ -110,7 +117,7 @@ static void launcher_done(void) { [g_root startGame]; }
         if(error){self.loadLabel.text=error;return;}
         dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED,0),^{
             int ok=front_ios_load_resources(folder.fileSystemRepresentation);
-            dispatch_async(dispatch_get_main_queue(),^{if(!ok){self.loadLabel.text=@"资源启动失败，请查看 log.txt。";return;}self.launched=YES;g_root=self;
+            dispatch_async(dispatch_get_main_queue(),^{if(!ok){self.loadLabel.text=@"资源启动失败，请查看 logs/log.txt。";return;}self.launched=YES;g_root=self;
                 if(!dm_show_launcher((__bridge void *)self,launcher_done))[self startGame];});
         });
     });

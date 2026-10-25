@@ -1,6 +1,6 @@
 # ACNH Mobile
 
-**0.3.32 · build 34 — official Metal 4 edition, iOS 26+.**
+**0.3.38 · build 40 — official Metal 4 edition, iOS 26+.**
 
 A native compatibility runtime for Animal Crossing: New Horizons 3.0.3. The runtime and shader translation sources are based on [NXNative](https://github.com/seedds/nxnative) commit `e72a06510e6dfff4a77c49fd205a82e21cad0786`.
 
@@ -8,7 +8,7 @@ This edition uses the official Metal 4 replay path and matching shader chain. It
 
 [简体中文](README.zh-CN.md) · [Shell guide](docs/SHELL.md) · [Build guide](docs/BUILD.md)
 
-Updates upstream stencil views, upload-thread handoff, command memory allocation, movie audio buffers, spin waits and Mac keyboard handling. Existing personalization, controls, photo export, text input and .data are preserved. See [release notes](docs/RELEASE-v0.3.32.zh-CN.md).
+Updates upstream memory mapping consistency, pipeline scissor restoration, geometry capture and scratch-buffer lifetime, and Mac focus handling. Diagnostics now live in logs and existing files are migrated. Existing personalization, controls, photo export, text input and .data are preserved. See [release notes](docs/RELEASE-v0.3.38.zh-CN.md).
 
 ## Downloads
 

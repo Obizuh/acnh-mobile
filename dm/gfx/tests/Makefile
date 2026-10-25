@@ -79,7 +79,9 @@ t_view_levels: t_view_levels.m $(MTL_T_DEP)
 	clang $(CFLAGS) -fobjc-arc -o $@ t_view_levels.m $(MTL_T_SRC) $(FW)
 t_pfv: t_pfv.m $(MTL_T_DEP)
 	clang $(CFLAGS) -fobjc-arc -o $@ t_pfv.m $(MTL_T_SRC) $(FW)
-run: t_geometry t_prog_restore t_nvn t_dirty_slots t_dirty_race t_builtin t_vin t_tbuf2d t_deswz_gpu t_pace t_fstep t_refl t_hmap t_cover t_fuse_check t_present_crop t_reorder_chain t_defer_chain t_zskip t_xv t_ub t_vbuf t_mip_extent t_rt_range_shape t_rt_range_ro t_rt_range t_rt_depth_ro t_pso_skey t_pfv t_view_levels t_view_swizzle
+run: t_clear_ds t_downsample t_geometry t_prog_restore t_nvn t_dirty_slots t_dirty_race t_builtin t_vin t_tbuf2d t_deswz_gpu t_pace t_fstep t_refl t_hmap t_cover t_fuse_check t_present_crop t_reorder_chain t_defer_chain t_zskip t_xv t_ub t_vbuf t_mip_extent t_rt_range_shape t_rt_range_ro t_rt_range t_rt_depth_ro t_pso_skey t_pfv t_view_levels t_view_swizzle
+	./t_clear_ds
+	./t_downsample
 	./t_geometry
 	./t_prog_restore
 	./t_nvn
@@ -152,3 +154,6 @@ t_upgrade_alias: t_upgrade_alias.m $(MTL_T_DEP)
 
 t_stencil_view: t_stencil_view.m $(MTL_T_DEP)
 	clang $(CFLAGS) -fobjc-arc -o $@ t_stencil_view.m $(MTL_T_SRC) $(FW)
+
+t_downsample: t_downsample.m $(MTL_T_DEP)
+	clang $(CFLAGS) -fobjc-arc -o $@ t_downsample.m $(MTL_T_SRC) $(FW)
