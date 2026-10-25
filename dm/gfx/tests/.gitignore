@@ -70,3 +70,6 @@ t_clear_ds
 t_upgrade_alias
 
 t_stencil_view
+
+t_present_snap
+t_pool_lifetime

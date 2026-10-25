@@ -24,7 +24,7 @@ private func localized(_ english: String, _ chinese: String) -> String {
     LauncherText.text(english, chinese)
 }
 private func label(_ s: Setting) -> String {
-    let names = ["DM_RUMBLE": "游戏震动", "DM_RUMBLE_GAIN": "震动强度", "DM_TOUCH_HAPTICS": "触屏反馈", "ACNH_CUSTOM_BASE": "调整对象", "ACNH_AUDIO_IGNORE_SILENT": "静音模式下播放声音", "ACNH_CONTROLLER_LAYOUT": "控制器布局", "DM_FPS_TARGET": "帧率", "DM_RENDER_SCALE": "渲染比例", "DM_OPMODE": "运行模式", "DM_LANG": "游戏语言", "DM_SHOW_FPS": "显示帧率", "DM_METAL_HUD": "性能信息面板"]
+    let names = ["DM_PRESENT_SNAP": "帧缓冲", "DM_RUMBLE": "游戏震动", "DM_RUMBLE_GAIN": "震动强度", "DM_TOUCH_HAPTICS": "触屏反馈", "ACNH_CUSTOM_BASE": "调整对象", "ACNH_AUDIO_IGNORE_SILENT": "静音模式下播放声音", "ACNH_CONTROLLER_LAYOUT": "控制器布局", "DM_FPS_TARGET": "帧率", "DM_RENDER_SCALE": "渲染比例", "DM_OPMODE": "运行模式", "DM_LANG": "游戏语言", "DM_SHOW_FPS": "显示帧率", "DM_METAL_HUD": "性能信息面板"]
     return localized(s.label, names[s.env] ?? s.label)
 }
 private func optionLabel(_ s: Setting, _ option: [String]) -> String {
@@ -68,30 +68,71 @@ private struct SettingRow: View {
     let s: Setting
     @ObservedObject var m: LauncherModel
     let edit: (String) -> Void
+
+    private var locked: Bool { m.fromFile.contains(s.env) }
+    private var note: String {
+        let translated = LauncherText.note(env: s.env, fallback: s.note)
+        return locked ? (translated.isEmpty ? "" : translated + " · ") + localized("Set by an env file", "由配置文件设置") : translated
+    }
+    private var rangeValue: Binding<Double> {
+        Binding(get: { Double(m.values[s.env] ?? s.def) ?? s.max ?? 1 },
+                set: { m.values[s.env] = String(format: "%.2f", $0) })
+    }
+    private var percentage: String { "\(Int((rangeValue.wrappedValue * 100).rounded())) %" }
+
+    private var settingLabel: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(label(s))
+            if !note.isEmpty { Text(note).font(.footnote).foregroundStyle(.secondary) }
+        }
+    }
+
     var body: some View {
-        let locked = m.fromFile.contains(s.env)
-        Section {
+        Group {
             switch s.kind {
             case "choice":
-                Picker(label(s), selection: m.binding(s)) { ForEach(s.options ?? [], id: \.[0]) { Text(optionLabel(s, $0)).tag($0[0]) } }
+                Picker(selection: m.binding(s)) {
+                    ForEach(s.options ?? [], id: \.[0]) { Text(optionLabel(s, $0)).tag($0[0]) }
+                } label: {
+                    settingLabel
+                }
+                .pickerStyle(.navigationLink)
             case "range":
-                let lo = s.min ?? 0, hi = s.max ?? 1
-                let v = Binding<Double>(get: { Double(m.values[s.env] ?? s.def) ?? hi }, set: { m.values[s.env] = String(format: "%.2f", $0) })
-                HStack {
-                    Text(label(s))
-                    Slider(value: v, in: lo...hi, step: s.step ?? 0.05)
-                    Text("\(Int((v.wrappedValue * 100).rounded())) %").monospacedDigit().foregroundStyle(.secondary).frame(width: 56, alignment: .trailing)
+                NavigationLink {
+                    Form {
+                        Section {
+                            HStack {
+                                Text(label(s))
+                                Spacer()
+                                Text(percentage).monospacedDigit().foregroundStyle(.secondary)
+                            }
+                            Slider(value: rangeValue, in: (s.min ?? 0)...(s.max ?? 1), step: s.step ?? 0.05)
+                                .accessibilityLabel(label(s))
+                                .accessibilityValue(percentage)
+                                .disabled(locked)
+                        } footer: {
+                            if !note.isEmpty { Text(note) }
+                        }
+                    }
+                    .contentMargins(.horizontal, 12, for: .scrollContent)
+                    .navigationTitle(label(s))
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar(.visible, for: .navigationBar)
+                } label: {
+                    HStack {
+                        settingLabel
+                        Spacer()
+                        Text(percentage).monospacedDigit().foregroundStyle(.secondary)
+                    }
                 }
             default:
-                Toggle(label(s), isOn: Binding(get: { (m.values[s.env] ?? s.def) == "1" }, set: { m.values[s.env] = $0 ? "1" : "0" }))
+                Toggle(isOn: Binding(get: { (m.values[s.env] ?? s.def) == "1" }, set: { m.values[s.env] = $0 ? "1" : "0" })) {
+                    settingLabel
+                }
             }
             if s.env == "ACNH_CUSTOM_BASE" {
                 Button(localized("Adjust positions and sizes", "调整位置与大小")) { edit(m.values[s.env] ?? "acnh") }
             }
-        } footer: {
-            let translated = LauncherText.note(env: s.env, fallback: s.note)
-            let note = locked ? (translated.isEmpty ? "" : translated + " · ") + localized("Set by an env file", "由配置文件设置") : translated
-            if !note.isEmpty { Text(note) }
         }
         .disabled(locked)
     }
@@ -103,54 +144,65 @@ private struct LauncherView: View {
     let play: () -> Void
     @State private var memory = os_proc_available_memory()
     @State private var personalizationExpanded = false
-    private let personalizationKeys = ["ACNH_CONTROLLER_LAYOUT", "ACNH_CUSTOM_BASE", "ACNH_AUDIO_IGNORE_SILENT", "DM_TOUCH_HAPTICS", "DM_RUMBLE", "DM_RUMBLE_GAIN"]
+    private let personalizationKeys = ["ACNH_CONTROLLER_LAYOUT", "ACNH_CUSTOM_BASE", "ACNH_AUDIO_IGNORE_SILENT", "DM_PRESENT_SNAP", "DM_TOUCH_HAPTICS", "DM_RUMBLE", "DM_RUMBLE_GAIN"]
 
     var body: some View {
-        HStack(spacing: 0) {
-            VStack(spacing: 16) {
-                if let icon = appIcon() {
-                    Image(uiImage: icon).resizable().frame(width: 96, height: 96).clipShape(RoundedRectangle(cornerRadius: 22))
-                }
-                Text((info("CFBundleDisplayName") as? String) ?? localized("Game", "游戏")).font(.title.weight(.bold)).multilineTextAlignment(.center)
-                Text("\(localized("Version", "版本")) \((info("CFBundleShortVersionString") as? String) ?? "") · \((info("CFBundleVersion") as? String) ?? "")").font(.callout).foregroundStyle(.secondary)
-                playButton
-            }
-            .padding(24)
-            .frame(maxWidth: .infinity)
-            Form {
-                ForEach(m.settings.filter { !personalizationKeys.contains($0.env) }) { setting in
-                    SettingRow(s: setting, m: m, edit: edit)
-                }
-                Section {
-                    Button {
-                        withAnimation(.easeInOut(duration: 0.2)) { personalizationExpanded.toggle() }
-                    } label: {
-                        HStack {
-                            Text(localized("Personalization", "个性化")).foregroundStyle(Color(uiColor: .label))
-                            Spacer()
-                            Image(systemName: personalizationExpanded ? "chevron.down" : "chevron.right")
-                                .font(.body.weight(.semibold)).foregroundStyle(Color(uiColor: .secondaryLabel)).accessibilityHidden(true)
-                        }.contentShape(Rectangle())
+        GeometryReader { geometry in
+            HStack(spacing: 0) {
+                VStack(spacing: 16) {
+                    if let icon = appIcon() {
+                        Image(uiImage: icon).resizable().frame(width: 96, height: 96)
+                            .clipShape(RoundedRectangle(cornerRadius: 22)).accessibilityHidden(true)
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityValue(personalizationExpanded ? localized("Expanded", "已展开") : localized("Collapsed", "已折叠"))
+                    Text((info("CFBundleDisplayName") as? String) ?? localized("Game", "游戏"))
+                        .font(.title.weight(.bold)).multilineTextAlignment(.center)
+                    Text("\(localized("Version", "版本")) \((info("CFBundleShortVersionString") as? String) ?? "") · \((info("CFBundleVersion") as? String) ?? "")")
+                        .font(.callout).foregroundStyle(.secondary)
+                    playButton
                 }
-                if personalizationExpanded {
-                    ForEach(personalizationKeys, id: \.self) { key in
-                        if let setting = m.settings.first(where: { $0.env == key }), key != "ACNH_CUSTOM_BASE" || m.values["ACNH_CONTROLLER_LAYOUT"] == "custom" {
-                            SettingRow(s: setting, m: m, edit: edit)
+                .padding(16)
+                .frame(width: geometry.size.width / 3, height: geometry.size.height)
+                NavigationStack {
+                    List {
+                        Section {
+                            ForEach(m.settings.filter { !personalizationKeys.contains($0.env) }) { setting in
+                                SettingRow(s: setting, m: m, edit: edit)
+                            }
+                            Button {
+                                withAnimation(.easeInOut(duration: 0.2)) { personalizationExpanded.toggle() }
+                            } label: {
+                                HStack {
+                                    Text(localized("Personalization", "个性化")).foregroundStyle(Color(uiColor: .label))
+                                    Spacer()
+                                    Image(systemName: personalizationExpanded ? "chevron.down" : "chevron.right")
+                                        .foregroundStyle(Color(uiColor: .secondaryLabel)).accessibilityHidden(true)
+                                }.contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityValue(personalizationExpanded ? localized("Expanded", "已展开") : localized("Collapsed", "已折叠"))
+                            if personalizationExpanded {
+                                ForEach(personalizationKeys, id: \.self) { key in
+                                    if let setting = m.settings.first(where: { $0.env == key }), key != "ACNH_CUSTOM_BASE" || m.values["ACNH_CONTROLLER_LAYOUT"] == "custom" {
+                                        SettingRow(s: setting, m: m, edit: edit)
+                                    }
+                                }
+                            }
+                        }
+                        Section {
+                            HStack {
+                                Text(localized("Memory available", "可用内存"))
+                                Spacer()
+                                Text(ByteCountFormatter.string(fromByteCount: Int64(memory), countStyle: .memory)).monospacedDigit().foregroundStyle(.secondary)
+                            }
                         }
                     }
+                    .listStyle(.insetGrouped)
+                    .contentMargins(.horizontal, 12, for: .scrollContent)
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar(.hidden, for: .navigationBar)
                 }
-                Section {
-                    HStack {
-                        Text(localized("Memory available", "可用内存"))
-                        Spacer()
-                        Text(ByteCountFormatter.string(fromByteCount: Int64(memory), countStyle: .memory)).monospacedDigit().foregroundStyle(.secondary)
-                    }
-                }
+                .frame(width: geometry.size.width * 2 / 3)
             }
-            .frame(maxWidth: .infinity)
         }
         .preferredColorScheme(.dark)
         .task {
