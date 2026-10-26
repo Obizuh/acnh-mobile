@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Prepare ACNH 3.0.3 using upstream extraction, rewrite and Metal shader tools."""
-import hashlib,importlib.util,json,os,shutil,subprocess,sys
+import hashlib,importlib.util,json,os,re,shutil,subprocess,sys
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
 TITLE='01006F8002326000'
@@ -42,6 +42,27 @@ def cache_key(family):
             if p.is_file() and p.name not in ('c1_full.tsv','cb_extent.tsv') and p.suffix in ('.py','.cs','.csproj','.tsv','.h','.lock') and not any(x in ('obj','bin','__pycache__') for x in p.parts):h.update(p.read_bytes())
     return h.hexdigest()[:20]
 
+def translator_preflight(xlate,env,log):
+    """Exercise the exact translator before extraction; do not alter macOS security."""
+    while True:
+        try:
+            result=subprocess.run([str(xlate),'--source-sha'],env=env,stdout=subprocess.PIPE,
+                                  stderr=subprocess.STDOUT,text=True,timeout=30)
+            output=result.stdout or ''
+            status=str(result.returncode)
+            ok=result.returncode==0 and re.fullmatch(r'[0-9a-f]{16}',output.strip())
+        except (OSError,subprocess.TimeoutExpired) as error:
+            output=str(error);status='launch failed';ok=False
+        with Path(log).open('a') as f:f.write('translator preflight: '+status+'\n'+output+'\n')
+        if ok:return
+        message=('着色器工具启动检查未通过，尚未开始提取游戏。\n'
+                 '如果 macOS 提示无法验证 dmsh_xlate，请先点“完成”；确认是本项目刚编译的工具后，'
+                 '在系统设置 → 隐私与安全性中手动选择“仍要打开”。\n'
+                 '工具：'+str(xlate)+'\n日志：'+str(log))
+        if not sys.stdin.isatty():raise ValueError(message)
+        print(message,flush=True)
+        input('处理完成后按回车重试，或按 Ctrl+C 取消：')
+
 def prepare(game,keys,work,run,log,platform='ios'):
     u,game,keys,family=raw_plan(game,keys)
     cache=Path(work)/'prepared'/cache_key(family);cache.mkdir(parents=True,exist_ok=True)
@@ -64,16 +85,17 @@ def prepare(game,keys,work,run,log,platform='ios'):
     (cache/'tmp').mkdir(exist_ok=True);logs=cache/'logs';logs.mkdir(exist_ok=True)
     sys.path.insert(0,str(repo/'dm/games'));import game as games
     g=games.load(TITLE);u.PROG.mode='lines';u.PROG.plan(6)
+    xlate=repo/'dm/gfx/tools/dmsh_xlate_bin/dmsh_xlate'
+    u.PROG.stage('build official shader translator')
+    u.run(['dotnet','publish',repo/'dm/gfx/tools/dmsh_xlate','-c','Release','-o',xlate.parent],logs/'translator.log',env=env);u.PROG.end()
+    env['XLATE']=str(xlate)
+    translator_preflight(xlate,env,logs/'translator-preflight.log')
     u.PROG.stage('build extraction tool')
     nx=u.build_nx_extract(repo,cache,logs,env);u.PROG.end()
     ex=u.extract(nx,keys,cache/'extract','3.0.3',family['base'],family['updates'][0][1],None,logs,g)
     bad=u.build_mismatch(ex,'v2228224',g)
     if bad:raise ValueError('游戏版本不匹配：'+', '.join(bad))
     patched=cache/'patched';u.rewrite(sys.executable,repo,ex/'ExeFS',patched,env,logs,g)
-    xlate=repo/'dm/gfx/tools/dmsh_xlate_bin/dmsh_xlate'
-    u.PROG.stage('build official shader translator')
-    u.run(['dotnet','publish',repo/'dm/gfx/tools/dmsh_xlate','-c','Release','-o',xlate.parent],logs/'translator.log',env=env);u.PROG.end()
-    env['XLATE']=str(xlate)
     for flag in ('--update-lock','--header'):
         u.run([sys.executable,repo/'dm/gfx/tools/dmsh_chain.py',flag],logs/('chain'+flag+'.log'),env=env)
     sh=cache/'shader'
