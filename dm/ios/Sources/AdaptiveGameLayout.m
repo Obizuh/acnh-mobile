@@ -1,6 +1,6 @@
 #import "AdaptiveGameLayout.h"
 #import <objc/runtime.h>
-static char hingeKey,observerKey;
+static char hingeKey,observerKey,partialKey;
 BOOL acnh_has_hinge(UIView *view) {
  return [objc_getAssociatedObject(view.window.windowScene,&hingeKey) boolValue];
 }
@@ -8,10 +8,30 @@ CGFloat acnh_view_display_scale(UIView *view) {
  CGFloat scale=acnh_has_hinge(view)?view.traitCollection.displayScale:view.window.windowScene.screen.nativeScale;
  return scale>0?scale:MAX(1,view.traitCollection.displayScale);
 }
+static BOOL tabletop(UIView *view,CGRect *upper,CGRect *lower) {
+ if(!acnh_has_hinge(view)||![objc_getAssociatedObject(view.window.windowScene,&partialKey) boolValue])return NO;
+#if __IPHONE_OS_VERSION_MAX_ALLOWED >= 270100
+ if(@available(iOS 27.1,*)) {
+  CGRect divisions[16];int count=0;
+  for(UIViewReservedRegion *r in [view reservedRegionsOfKind:[UIViewReservedRegionKind divisionRegionKind]])
+   if(r.active&&count<16)divisions[count++]=r.frame;
+  return acnh_tabletop_regions(UIEdgeInsetsInsetRect(view.bounds,view.safeAreaInsets),divisions,count,upper,lower);
+ }
+#endif
+ return NO;
+}
+BOOL acnh_tabletop_active(UIView *view) { CGRect top,bottom;return tabletop(view,&top,&bottom); }
 CGRect acnh_game_frame(UIView *view) {
+ CGRect top,bottom;
+ if(tabletop(view,&top,&bottom))return acnh_fit_game(top);
  CGRect b=view.bounds;
  if(acnh_has_hinge(view))b=UIEdgeInsetsInsetRect(b,view.safeAreaInsets);
  return acnh_fit_game(b);
+}
+CGRect acnh_pad_frame(UIView *view) {
+ CGRect top,bottom;
+ if(tabletop(view,&top,&bottom))return bottom;
+ return acnh_has_hinge(view)?acnh_game_frame(view):view.bounds;
 }
 void acnh_observe_display(UIView *view) {
 #if __IPHONE_OS_VERSION_MAX_ALLOWED >= 270100
@@ -20,13 +40,20 @@ void acnh_observe_display(UIView *view) {
   __weak UIView *weakView=view;
   UIHingeInteraction *observer=[[UIHingeInteraction alloc] initWithUpdateHandler:^(UIHingeInteraction *interaction,UIHingeInteractionUpdate *update){
    (void)interaction;UIView *v=weakView;UIWindowScene *scene=v.window.windowScene;
-   if(!v||!scene||!update.hinge)return;
-   // Retain capability across display transitions; no model IDs, pixel-size tests or angle-based layout.
-   if(![objc_getAssociatedObject(scene,&hingeKey) boolValue]){
-    objc_setAssociatedObject(scene,&hingeKey,@YES,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+   if(!v||!scene)return;
+   // Capability survives display changes. A nil update clears the posture,
+   // so an outer display cannot inherit a previous tabletop layout.
+   BOOL wasCapable=acnh_has_hinge(v);
+   BOOL partial=update.hinge&&update.hinge.status==UIHingeStatusPartiallyOpen;
+   if(update.hinge)objc_setAssociatedObject(scene,&hingeKey,@YES,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+   objc_setAssociatedObject(scene,&partialKey,@(partial),OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+   if(!wasCapable&&update.hinge){
     NSLog(@"[display] hinge-capable scene; adaptive controls enabled");
-    [v setNeedsLayout];[v.window.rootViewController.view setNeedsLayout];
+    [v.window.rootViewController setNeedsUpdateOfSupportedInterfaceOrientations];
    }
+   // Query the system's division in layout; angle alone doesn't describe
+   // which way the hinge crosses this window (or a multitasking window).
+   [v setNeedsLayout];[v.window.rootViewController.view setNeedsLayout];
   }];
   objc_setAssociatedObject(view,&observerKey,observer,OBJC_ASSOCIATION_RETAIN_NONATOMIC);[view addInteraction:observer];
  }

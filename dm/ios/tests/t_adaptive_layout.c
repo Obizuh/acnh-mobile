@@ -28,5 +28,13 @@ int main(void){
  assert(hypot(p.x-center.x,p.y-center.y)>0);
  p=acnh_clear_control(CGPointMake(-99,999),safe,36,NULL,0);
  assert(p.x>=39&&p.y<=CGRectGetMaxY(safe)-39);
+ CGRect u,l,s=CGRectMake(20,30,900,1250),d=CGRectMake(0,640,942,30);
+ assert(acnh_tabletop_regions(s,&d,1,&u,&l));
+ assert(CGRectGetMaxY(u)==640&&CGRectGetMinY(l)==670);
+ assert(!CGRectIntersectsRect(u,l));fit(u);
+ d=CGRectMake(450,0,30,1400);assert(!acnh_tabletop_regions(s,&d,1,&u,&l));
+ assert(!acnh_tabletop_regions(s,NULL,0,&u,&l));
+ d=CGRectMake(0,40,942,30);assert(!acnh_tabletop_regions(s,&d,1,&u,&l));
+ d=CGRectMake(0,640,942,0);assert(acnh_tabletop_regions(s,&d,1,&u,&l));
  puts("adaptive layout: 652 fit cases, legacy/inset positions and reserved-region checks passed");
 }

@@ -162,6 +162,7 @@ static __weak DmGamepad *g_view;
 }
 // Normalize inside the 16:9 game picture, excluding letterboxing; control fingers never also reach game touch.
 - (void)publishScreenTouches {
+    if(acnh_tabletop_active(self.superview))return; // The upper game view owns direct screen touches.
     CGFloat w=self.bounds.size.width,h=self.bounds.size.height;
     if(w/h>16.0/9.0)w=h*16.0/9.0;else h=w*9.0/16.0;
     CGFloat ox=(self.bounds.size.width-w)/2,oy=(self.bounds.size.height-h)/2;
