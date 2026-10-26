@@ -1,6 +1,6 @@
 # ACNH Mobile
 
-**0.3.43 · build 45 — official Metal 4 edition, iOS 26+.**
+**0.3.46 · build 48 — official Metal 4 edition, iOS 26+.**
 
 A native compatibility runtime for Animal Crossing: New Horizons 3.0.3. The runtime and shader translation sources are based on [NXNative](https://github.com/seedds/nxnative) commit `e72a06510e6dfff4a77c49fd205a82e21cad0786`.
 
@@ -8,7 +8,7 @@ This edition uses the official Metal 4 replay path and matching shader chain. It
 
 [简体中文](README.zh-CN.md) · [Shell guide](docs/SHELL.md) · [Build guide](docs/BUILD.md)
 
-This release includes Duo adaptation for testing, coordinated save replacement and the dedicated screenshot control. Selected upstream fixes address depth clears, packaged texture layout, present allocator reuse, audio work-buffer sizing and vibration-device detection. Existing personalization, controls, Photos export, text input and `.data` remain available. Duo folding, screen switching and touch behavior still require device testing. See [release notes](docs/RELEASE-v0.3.43.zh-CN.md).
+This release isolates save failures by backing transaction and reapplies Mac audio buffer sizing after output changes. It retains Duo testing layouts, grouped launcher settings, dedicated/custom controls, Photos export, text input and existing `.data` files. See [release notes](docs/RELEASE-v0.3.46.zh-CN.md).
 
 ## Downloads
 
@@ -42,7 +42,7 @@ Credits and licenses: [NXNative](https://github.com/seedds/nxnative), [D2R Mobil
 
 ## Local launchers
 
-Two root `.command` launchers build a private IPA or a private IPA plus external data. Choose your own game folder and prod.keys to extract, rewrite and translate official Metal shaders, with automatic dependency installation; existing prepared inputs can also be reused; see [local launcher guide](docs/ONE-CLICK.zh-CN.md).
+Download and extract the complete project, then double-click a root `.command` launcher to create an iPhone IPA, an IPA with external data, or a standalone Mac app. Choose your game folder, prod.keys and output folder in the three dialogs; no terminal commands or configuration edits are required. Dependencies are checked automatically, and generated build caches are cleaned after successful output validation. See the [local launcher guide](docs/ONE-CLICK.zh-CN.md).
 
 ## Mac app
 

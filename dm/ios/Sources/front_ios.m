@@ -26,8 +26,10 @@ static void front_ios_audio_watch(void);
 static UILabel *front_ios_fps_label(void);
 
 @interface DmGameView : UIView
+@property(nonatomic) BOOL separateTouch;
+- (void)resetScreenTouches;
 @end
-@implementation DmGameView
+@implementation DmGameView { NSMapTable<UITouch *,NSNumber *> *_screenFingers; }
 + (Class)layerClass { return CAMetalLayer.class; }
 - (instancetype)initWithFrame:(CGRect)f {
     if ((self = [super initWithFrame:f])) {
@@ -35,9 +37,33 @@ static UILabel *front_ios_fps_label(void);
         l.device = MTLCreateSystemDefaultDevice(); l.pixelFormat = MTLPixelFormatBGRA8Unorm;
         l.contentsScale = acnh_view_display_scale(self); l.framebufferOnly = NO; l.opaque = YES;
         self.backgroundColor = UIColor.blackColor;
+        self.multipleTouchEnabled=YES;_screenFingers=[NSMapTable strongToStrongObjectsMapTable];
     }
     return self;
 }
+- (void)resetScreenTouches { [_screenFingers removeAllObjects];dm_touch_set(NULL,0); }
+- (void)publishScreenTouches {
+ if(!self.separateTouch)return;
+ dm_touch points[16];int n=0;
+ for(UITouch *t in _screenFingers){
+  CGPoint p=[t locationInView:self];
+  if(self.bounds.size.width<=0||self.bounds.size.height<=0)continue;
+  points[n++]=(dm_touch){.id=[_screenFingers objectForKey:t].unsignedIntValue,
+   .x=(float)fmin(fmax(p.x/self.bounds.size.width,0),.999),.y=(float)fmin(fmax(p.y/self.bounds.size.height,0),.999)};
+ }
+ dm_touch_set(points,n);
+}
+- (void)touchesBegan:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
+ (void)event;if(!self.separateTouch)return;
+ for(UITouch *t in touches){BOOL used[16]={0};for(NSNumber *slot in _screenFingers.objectEnumerator)used[slot.intValue]=YES;
+  for(int i=0;i<16;i++)if(!used[i]){[_screenFingers setObject:@(i) forKey:t];break;}}
+ [self publishScreenTouches];
+}
+- (void)touchesMoved:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event { (void)touches;(void)event;[self publishScreenTouches]; }
+- (void)touchesEnded:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
+ (void)event;for(UITouch *t in touches)[_screenFingers removeObjectForKey:t];[self publishScreenTouches];
+}
+- (void)touchesCancelled:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event { [self touchesEnded:touches withEvent:event]; }
 - (void)didMoveToWindow { [super didMoveToWindow];[self setNeedsLayout]; }
 - (void)traitCollectionDidChange:(UITraitCollection *)previous {
     [super traitCollectionDidChange:previous];
@@ -97,14 +123,15 @@ static void launcher_done(void) { [g_root startGame]; }
 }
 - (void)viewDidLayoutSubviews {
     [super viewDidLayoutSubviews];
-    CGRect b = self.view.bounds; if (!self.game) return;
+    if (!self.game) return;
     CGRect previous=self.pad.frame;
     self.game.frame=acnh_game_frame(self.view);
-    self.pad.frame=acnh_has_hinge(self.view)?self.game.frame:b;
-    if(acnh_has_hinge(self.view)&&!CGRectEqualToRect(previous,self.pad.frame))dm_gamepad_reset();
+    self.pad.frame=acnh_pad_frame(self.view);
+    self.game.separateTouch=acnh_tabletop_active(self.view);
+    if(acnh_has_hinge(self.view)&&!CGRectEqualToRect(previous,self.pad.frame)){dm_gamepad_reset();[self.game resetScreenTouches];}
     [self.game setNeedsLayout];[self.pad setNeedsLayout];
     if (self.fps) {   // the top row's free stretch: right of DmGamepad.m's L3 key (102 + 17 of its units from the safe edge), level with − / + (22 units down); u is its unit
-        CGRect s = UIEdgeInsetsInsetRect(b, self.view.safeAreaInsets); CGFloat u = MIN(b.size.height / 430.0, 1.3);
+        CGRect s = acnh_has_hinge(self.view)?self.pad.frame:UIEdgeInsetsInsetRect(self.view.bounds,self.view.safeAreaInsets); CGFloat u = MIN((acnh_has_hinge(self.view)?s.size.height:self.view.bounds.size.height) / 430.0, 1.3);
         self.fps.frame = CGRectMake(floor(CGRectGetMinX(s) + 130 * u), floor(CGRectGetMinY(s) + 22 * u - 11), 64, 22);
     }
 }
@@ -147,7 +174,7 @@ static void launcher_done(void) { [g_root startGame]; }
 - (BOOL)prefersHomeIndicatorAutoHidden { return YES; }
 - (UIRectEdge)preferredScreenEdgesDeferringSystemGestures { return UIRectEdgeAll; }   // Edge gestures need two swipes, to avoid accidental exits
 - (BOOL)prefersStatusBarHidden { return YES; }
-- (UIInterfaceOrientationMask)supportedInterfaceOrientations { return UIInterfaceOrientationMaskLandscape; }
+- (UIInterfaceOrientationMask)supportedInterfaceOrientations { return acnh_has_hinge(self.view)?UIInterfaceOrientationMaskAllButUpsideDown:UIInterfaceOrientationMaskLandscape; }
 @end
 UIViewController *front_ios_root(void) { return [DmRootVC new]; }
 

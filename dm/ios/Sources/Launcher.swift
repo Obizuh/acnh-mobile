@@ -9,22 +9,12 @@ import os
 @_silgen_name("dm_edit_pad_layout")
 private func dmEditPadLayout(_ parent: UnsafeMutableRawPointer, _ base: UnsafePointer<CChar>)
 
-private struct Setting: Decodable, Identifiable {
-    let env, kind, label, note, def: String
-    let options: [[String]]?   // choice: [value, label]
-    let min, max, step: Double?   // range
-    var id: String { env }
-    enum CodingKeys: String, CodingKey { case env, kind, label, note, def = "default", options, min, max, step }
-}
-private struct SettingsFile: Decodable { let settings: [Setting] }
-
 private func info(_ key: String) -> Any? { Bundle.main.object(forInfoDictionaryKey: key) }
-private let defaults = UserDefaults.standard
 private func localized(_ english: String, _ chinese: String) -> String {
     LauncherText.text(english, chinese)
 }
 private func label(_ s: Setting) -> String {
-    let names = ["DM_PRESENT_SNAP": "帧缓冲", "DM_RUMBLE": "游戏震动", "DM_RUMBLE_GAIN": "震动强度", "DM_TOUCH_HAPTICS": "触屏反馈", "ACNH_CUSTOM_BASE": "调整对象", "ACNH_AUDIO_IGNORE_SILENT": "静音模式下播放声音", "ACNH_CONTROLLER_LAYOUT": "控制器布局", "DM_FPS_TARGET": "帧率", "DM_RENDER_SCALE": "渲染比例", "DM_OPMODE": "运行模式", "DM_LANG": "游戏语言", "DM_SHOW_FPS": "显示帧率", "DM_METAL_HUD": "性能信息面板"]
+    let names = ["DM_PSO_MTL4": "Metal 4 管线", "DM_PSO_PREBUILD": "管线预构建", "DM_NVN_ENC_THREAD": "编码线程", "DM_FPS_HOLD": "延迟时保持帧", "DM_PRESENT_SNAP": "帧缓冲", "DM_RUMBLE": "游戏震动", "DM_RUMBLE_GAIN": "震动强度", "DM_TOUCH_HAPTICS": "触屏反馈", "ACNH_CUSTOM_BASE": "调整对象", "ACNH_AUDIO_IGNORE_SILENT": "静音模式下播放声音", "ACNH_CONTROLLER_LAYOUT": "控制器布局", "DM_FPS_TARGET": "帧率", "DM_RENDER_SCALE": "渲染比例", "DM_OPMODE": "运行模式", "DM_LANG": "游戏语言", "DM_SHOW_FPS": "显示帧率", "DM_METAL_HUD": "性能信息面板"]
     return localized(s.label, names[s.env] ?? s.label)
 }
 private func optionLabel(_ s: Setting, _ option: [String]) -> String {
@@ -36,32 +26,8 @@ private func optionLabel(_ s: Setting, _ option: [String]) -> String {
     return option[1]
 }
 
-private final class LauncherModel: ObservableObject {
-    let settings: [Setting]
-    let fromFile: Set<String>   // set by an env file: shown, not changed
-    @Published var values: [String: String] = [:]
-
-    init(_ settings: [Setting]) {
-        self.settings = settings
-        fromFile = Set((ProcessInfo.processInfo.environment["DM_ENV_FILE_KEYS"] ?? "").split(separator: " ").map(String.init))
-        for s in settings {
-            if fromFile.contains(s.env), let v = ProcessInfo.processInfo.environment[s.env] { values[s.env] = v; continue }
-            let saved = defaults.string(forKey: "launcher." + s.env)
-            values[s.env] = saved.flatMap { v in s.options == nil || s.options!.contains { $0[0] == v } ? v : nil } ?? s.def   // a saved choice the game no longer offers: its default
-        }
-    }
-
+private extension LauncherModel {
     func binding(_ s: Setting) -> Binding<String> { Binding(get: { self.values[s.env] ?? s.def }, set: { self.values[s.env] = $0 }) }
-
-    // Before the game starts: every setting not set by an env file goes into the environment (DM_LANG replaces the packed language main.m set as a default)
-    func apply() {
-        for s in settings {
-            let v = values[s.env] ?? s.def
-            if fromFile.contains(s.env) { fputs("launcher: \(s.env) kept at \(v) (env file)\n", stderr); continue }
-            defaults.set(v, forKey: "launcher." + s.env)
-            setenv(s.env, v, 1); fputs("launcher: \(s.env)=\(v)\n", stderr)
-        }
-    }
 }
 
 private struct SettingRow: View {
@@ -69,8 +35,9 @@ private struct SettingRow: View {
     @ObservedObject var m: LauncherModel
     let edit: (String) -> Void
 
-    private var locked: Bool { m.fromFile.contains(s.env) }
+    private var locked: Bool { m.fromFile.contains(s.env) || s.available == false }
     private var note: String {
+        if s.available == false { return localized("This game controls its own frame timing; this option is not applicable.", "动森自行控制帧率，当前不适用此选项。") }
         let translated = LauncherText.note(env: s.env, fallback: s.note)
         return locked ? (translated.isEmpty ? "" : translated + " · ") + localized("Set by an env file", "由配置文件设置") : translated
     }
@@ -96,37 +63,20 @@ private struct SettingRow: View {
                 } label: {
                     settingLabel
                 }
-                .pickerStyle(.navigationLink)
+                .pickerStyle(.menu)
             case "range":
-                NavigationLink {
-                    Form {
-                        Section {
-                            HStack {
-                                Text(label(s))
-                                Spacer()
-                                Text(percentage).monospacedDigit().foregroundStyle(.secondary)
-                            }
-                            Slider(value: rangeValue, in: (s.min ?? 0)...(s.max ?? 1), step: s.step ?? 0.05)
-                                .accessibilityLabel(label(s))
-                                .accessibilityValue(percentage)
-                                .disabled(locked)
-                        } footer: {
-                            if !note.isEmpty { Text(note) }
-                        }
-                    }
-                    .contentMargins(.horizontal, 12, for: .scrollContent)
-                    .navigationTitle(label(s))
-                    .navigationBarTitleDisplayMode(.inline)
-                    .toolbar(.visible, for: .navigationBar)
-                } label: {
+                VStack(alignment: .leading, spacing: 8) {
                     HStack {
                         settingLabel
                         Spacer()
                         Text(percentage).monospacedDigit().foregroundStyle(.secondary)
                     }
+                    Slider(value: rangeValue, in: (s.min ?? 0)...(s.max ?? 1), step: s.step ?? 0.05)
+                        .accessibilityLabel(s.label)
+                        .accessibilityValue(percentage)
                 }
             default:
-                Toggle(isOn: Binding(get: { (m.values[s.env] ?? s.def) == "1" }, set: { m.values[s.env] = $0 ? "1" : "0" })) {
+                Toggle(isOn: Binding(get: { (m.values[s.env] ?? s.def) == s.onValue }, set: { m.values[s.env] = $0 ? s.onValue : s.offValue })) {
                     settingLabel
                 }
             }
@@ -143,8 +93,7 @@ private struct LauncherView: View {
     let edit: (String) -> Void
     let play: () -> Void
     @State private var memory = os_proc_available_memory()
-    @State private var personalizationExpanded = false
-    private let personalizationKeys = ["ACNH_CONTROLLER_LAYOUT", "ACNH_CUSTOM_BASE", "ACNH_AUDIO_IGNORE_SILENT", "DM_PRESENT_SNAP", "DM_TOUCH_HAPTICS", "DM_RUMBLE", "DM_RUMBLE_GAIN"]
+
 
     var body: some View {
         GeometryReader { geometry in
@@ -164,29 +113,18 @@ private struct LauncherView: View {
                 .frame(width: geometry.size.width / 3, height: geometry.size.height)
                 NavigationStack {
                     List {
-                        Section {
-                            ForEach(m.settings.filter { !personalizationKeys.contains($0.env) }) { setting in
-                                SettingRow(s: setting, m: m, edit: edit)
-                            }
-                            Button {
-                                withAnimation(.easeInOut(duration: 0.2)) { personalizationExpanded.toggle() }
-                            } label: {
-                                HStack {
-                                    Text(localized("Personalization", "个性化")).foregroundStyle(Color(uiColor: .label))
-                                    Spacer()
-                                    Image(systemName: personalizationExpanded ? "chevron.down" : "chevron.right")
-                                        .foregroundStyle(Color(uiColor: .secondaryLabel)).accessibilityHidden(true)
-                                }.contentShape(Rectangle())
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityValue(personalizationExpanded ? localized("Expanded", "已展开") : localized("Collapsed", "已折叠"))
-                            if personalizationExpanded {
-                                ForEach(personalizationKeys, id: \.self) { key in
-                                    if let setting = m.settings.first(where: { $0.env == key }), key != "ACNH_CUSTOM_BASE" || m.values["ACNH_CONTROLLER_LAYOUT"] == "custom" {
-                                        SettingRow(s: setting, m: m, edit: edit)
-                                    }
+                        ForEach(m.sections, id: \.self) { section in
+                            Section(localized(section, ["Game":"游戏", "Controls":"控制", "Performance":"性能"][section] ?? section)) {
+                                ForEach(m.settings.filter { $0.sectionTitle == section && ($0.env != "ACNH_CUSTOM_BASE" || m.values["ACNH_CONTROLLER_LAYOUT"] == "custom") }) { setting in
+                                    SettingRow(s: setting, m: m, edit: edit)
                                 }
                             }
+                        }
+                        Section {
+                            Button(localized("Reset to tested defaults", "恢复默认设置")) { m.reset() }
+                                .disabled(!m.changed)
+                        } footer: {
+                            Text(localized("Brings back all settings this game was tested with.", "恢复此游戏预设的默认设置；由配置文件锁定的选项保持不变。"))
                         }
                         Section {
                             HStack {

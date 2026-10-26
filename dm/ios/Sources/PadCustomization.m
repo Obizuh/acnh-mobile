@@ -45,7 +45,7 @@ static NSString *L(NSString *en,NSString *zh){return [NSLocale.preferredLanguage
  [self rebuild];
 }
 - (void)viewDidLayoutSubviews{
- [super viewDidLayoutSubviews];_pad.frame=acnh_has_hinge(self.view)?acnh_game_frame(self.view):self.view.bounds;[_pad setNeedsLayout];[_pad layoutIfNeeded];
+ [super viewDidLayoutSubviews];_pad.frame=acnh_pad_frame(self.view);[_pad setNeedsLayout];[_pad layoutIfNeeded];
  CGFloat w=MIN(400,self.view.bounds.size.width-32),x=(self.view.bounds.size.width-w)/2,y=self.view.bounds.size.height-self.view.safeAreaInsets.bottom-110;
  x=MAX(0,MIN(self.view.bounds.size.width-w,x+_panelOffset.x));y=MAX(self.view.safeAreaInsets.top,MIN(self.view.bounds.size.height-104,y+_panelOffset.y));
  _panel.frame=CGRectMake(x,y,w,104);_title.frame=CGRectMake(4,2,w-8,20);

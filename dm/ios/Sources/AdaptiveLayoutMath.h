@@ -33,3 +33,18 @@ static inline CGPoint acnh_clear_control(CGPoint p,CGRect safe,CGFloat r,const C
 static inline CGFloat acnh_inset_control_x(CGFloat x,int foldable) {
  if(!foldable)return x;return x<.45?x+.025:x>.55?x-.025:x;
 }
+
+// Split only across an active horizontal system division. Never infer a hinge
+// from a screen ratio or split at a guessed midpoint (outer screens/iPads).
+static inline int acnh_tabletop_regions(CGRect safe,const CGRect *divisions,int count,CGRect *upper,CGRect *lower) {
+ for(int i=0;i<count;i++){
+  CGRect d=CGRectIntersection(safe,divisions[i]);
+  if(CGRectIsNull(d)||CGRectIsInfinite(d)||d.size.width<safe.size.width*.8||d.size.height>safe.size.height*.2)continue;
+  CGFloat top=CGRectGetMinY(d)-CGRectGetMinY(safe),bottom=CGRectGetMaxY(safe)-CGRectGetMaxY(d);
+  if(top<safe.size.height*.25||bottom<safe.size.height*.25)continue;
+  *upper=CGRectMake(safe.origin.x,safe.origin.y,safe.size.width,top);
+  *lower=CGRectMake(safe.origin.x,CGRectGetMaxY(d),safe.size.width,bottom);
+  return 1;
+ }
+ return 0;
+}

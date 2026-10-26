@@ -39,6 +39,7 @@ targets:
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationLandscapeRight
           - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationPortrait   # Runtime controller permits this only on hinge-capable devices
         UIRequiresFullScreen: true
         UIStatusBarHidden: true
         UIViewControllerBasedStatusBarAppearance: false

@@ -30,6 +30,19 @@ class PrepareTests(unittest.TestCase):
             plan=d.ensure(raw=True,plan=True,mac=True)
             self.assertNotIn('xcodegen',plan['homebrew'])
             self.assertIn('spirv-cross',plan['homebrew'])
+    def test_translator_preflight_before_extraction(self):
+        import subprocess
+        with tempfile.TemporaryDirectory() as t:
+            log=Path(t)/'probe.log'
+            good=subprocess.CompletedProcess([],0,'0123456789abcdef\n')
+            with patch.object(p.subprocess,'run',return_value=good) as run:
+                p.translator_preflight(Path(t)/'dmsh_xlate',{},log)
+                self.assertEqual(run.call_args.args[0][-1],'--source-sha')
+            with patch.object(p.subprocess,'run',return_value=subprocess.CompletedProcess([],-9,'')),patch.object(p.sys.stdin,'isatty',return_value=False):
+                with self.assertRaisesRegex(ValueError,'尚未开始提取'):p.translator_preflight(Path(t)/'dmsh_xlate',{},log)
+            with patch.object(p.subprocess,'run',side_effect=[subprocess.CompletedProcess([],-9,''),good]),patch.object(p.sys.stdin,'isatty',return_value=True),patch('builtins.input',return_value=''),patch('builtins.print'):
+                p.translator_preflight(Path(t)/'dmsh_xlate',{},log)
+
     def test_cancel_does_not_become_current_directory(self):
         import subprocess
         with patch.object(p.subprocess,'run',return_value=subprocess.CompletedProcess([],130,'','')):

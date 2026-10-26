@@ -11,7 +11,10 @@ enum LauncherText {
     static func note(env: String, fallback: String, language: String = Locale.preferredLanguages.first ?? "en") -> String {
         if language.lowercased().hasPrefix("ja"), !fallback.isEmpty {
             let japanese = [
-                "DM_PRESENT_SNAP": "カクつきを軽減する場合がありますが、表示の遅延が増えます。",
+                "DM_FPS_HOLD": "公式のフレーム制御を使う場合、遅れたフレームの表示を延長します。",
+                "DM_PSO_MTL4": "パイプラインアーカイブを保持するため、メモリ使用量が増えます。",
+                "DM_PSO_PREBUILD": "初回起動時に数分かかる場合があります。次回以降は再利用します。",
+                "DM_PRESENT_SNAP": "表示の遅延が最大 1 フレーム増えます。",
                 "DM_RUMBLE": "ゲームからの振動をスマートフォンや接続したコントローラーで再生します。",
                 "DM_RUMBLE_GAIN": "ゲーム内の振動設定と組み合わせて強さを調整します。",
                 "DM_TOUCH_HAPTICS": "タッチ操作のボタンやスティックを押したときに軽く振動します。",
@@ -23,7 +26,10 @@ enum LauncherText {
             return japanese[env] ?? fallback
         }
         let notes = [
-            "DM_PRESENT_SNAP": "可能减少卡顿，但会增加显示延迟。",
+            "DM_FPS_HOLD": "使用官方帧率步进时，延迟帧可保持更久。",
+            "DM_PSO_MTL4": "保留管线归档，会增加内存占用。",
+            "DM_PSO_PREBUILD": "首次启动可能需要等待几分钟，完成后后续启动复用。",
+            "DM_PRESENT_SNAP": "最多增加一帧显示延迟。",
             "DM_RUMBLE": "通过手机或已连接的手柄呈现游戏内震动。",
             "DM_RUMBLE_GAIN": "配合游戏内的震动设置，调整游戏震动强度。",
             "DM_TOUCH_HAPTICS": "按下触屏按键或开始触摸摇杆时提供轻微震动反馈。",

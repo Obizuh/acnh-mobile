@@ -273,6 +273,7 @@ static CGFloat dist(CGPoint a, CGPoint b) { return hypot(a.x - b.x, a.y - b.y); 
 // Touches no control takes (all of them while a physical controller is connected) go to the game's touch screen, normalized on the 16:9 picture that front_ios.m
 // centres in the screen: Super Mario Galaxy's pointer in handheld mode (profile op_mode). The host reports them only in handheld mode, as on the Switch (hle_hid.c touch_read)
 - (void)pushGame {
+    if(acnh_tabletop_active(self.superview))return; // The upper game view owns direct screen touches.
     CGRect b = self.bounds; CGFloat w = b.size.width, h = b.size.height;
     if (w <= 0 || h <= 0) return;
     if (w / h > 16.0 / 9.0) w = h * 16.0 / 9.0; else h = w * 9.0 / 16.0;

@@ -126,3 +126,15 @@ $(B)/t_audren_work: t_audren_work.c ../hle_audren.c ../hle.h ../dm.h $(GAME_H) |
 audren-work: $(B)/t_audren_work
 	$(B)/t_audren_work
 run: audren-work
+
+$(B)/t_audio_device: t_audio_device.c ../hle_audio.c ../hle.h ../dm.h $(GAME_H) | $(B)
+	clang -O1 -g -Wall -Werror -Wno-unused-function -I.. $(GINC) -o $@ t_audio_device.c -framework AudioToolbox
+.PHONY: audio-device
+audio-device: $(B)/t_audio_device
+	$(B)/t_audio_device
+run: audio-device
+$(B)/t_fs_commit_list_tsan: t_fs_commit_list.c t_fs_stub.c ../hle_fs.c ../hle_bigstack.c ../hle.h ../dm.h $(GAME_H) | $(B)
+	clang -O1 -g -fsanitize=thread -Wall -Wno-unused-function -I.. $(GINC) -o $@ t_fs_commit_list.c t_fs_stub.c ../hle_bigstack.c
+.PHONY: fs-tsan
+fs-tsan: $(B)/t_fs_commit_list_tsan
+	TMPDIR="$(abspath $(B))" $(B)/t_fs_commit_list_tsan
