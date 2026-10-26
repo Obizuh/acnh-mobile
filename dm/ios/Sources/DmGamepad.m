@@ -11,12 +11,13 @@
 #include "AcnhTouchLogic.h"
 #include "AcnhTextDetect.h"
 #import "PadCustomization.h"
+#import "AdaptiveGameLayout.h"
 #import "TouchFeedback.h"
-enum { B_A=0,B_B,B_X,B_Y,B_LS,B_RS,B_L,B_R,B_ZL,B_ZR,B_PLUS,B_MINUS,B_LEFT,B_UP,B_RIGHT,B_DOWN,B_L_TOP,B_N };
+enum { B_A=0,B_B,B_X,B_Y,B_LS,B_RS,B_L,B_R,B_ZL,B_ZR,B_PLUS,B_MINUS,B_LEFT,B_UP,B_RIGHT,B_DOWN,B_L_TOP,B_CAPTURE,B_N };
 _Static_assert(B_UP==13 && B_A==0,"Tool-wheel input bit mapping");
 // Both visible L controls send the same Switch button.
 static int inputButton(int button){return button==B_L_TOP?B_L:button;}
-enum { C_NONE=0,C_STICK,C_CAMERA,C_BTN,C_TOOL };
+enum { C_NONE=0,C_STICK,C_CAMERA,C_BTN,C_TOOL,C_CAPTURE };
 static pthread_mutex_t g_mu=PTHREAD_MUTEX_INITIALIZER;
 static uint64_t g_touch_btn,g_pad_btn;
 static int32_t g_touch_lx,g_touch_ly,g_touch_rx,g_touch_ry,g_pad_lx,g_pad_ly,g_pad_rx,g_pad_ry;
@@ -37,6 +38,7 @@ static void glyphRect(CGMutablePathRef p,CGRect r,CGFloat radius){CGPathRef q=CG
 static CGPathRef iconPath(int b){
  CGMutablePathRef p=CGPathCreateMutable();
  switch(b){
+ case B_CAPTURE:glyphRect(p,CGRectMake(12,12,40,40),5);CGPathAddEllipseInRect(p,NULL,CGRectMake(23,23,18,18));break;
  case B_A:GL(21,33,21,11,22,8,25,7,28,9,29,12,29,29,30,22,34,21,37,24,38,28,40,25,44,26,46,31,49,30,53,33,53,44,50,52,45,57,29,57,21,51,12,39,12,35,15,33,18,34,23,40);break;
  case B_L:CGPathAddEllipseInRect(p,NULL,CGRectMake(28,5,9,9));GL(31,18,27,32,38,40,43,53);GL(30,20,20,17,14,8);GL(31,20,43,15,49,7);GL(27,32,18,41,8,36);GL(10,57,51,57);break;
  case B_N:CGPathAddEllipseInRect(p,NULL,CGRectMake(36,5,10,10));GL(37,20,29,34,41,41,45,55);GL(35,23,25,21,18,29);GL(36,23,44,29,53,25);GL(29,34,22,44,10,45);break;
@@ -66,7 +68,7 @@ static __weak DmGamepad *g_view;
  NSMapTable<UITouch *,NSNumber *> *_owner,*_screenTouches;
  CAShapeLayer *_key[B_N],*_glyph[B_N],*_ring,*_knob,*_rightKnob;
  CATextLayer *_label[B_N];
- UITouch *_stick,*_camera,*_toolTouch;CGPoint _stickNow,_cameraNow,_toolOrigin;
+ UITouch *_stick,*_camera,*_toolTouch,*_captureTouch;BOOL _screenshotPending;CGPoint _stickNow,_cameraNow,_toolOrigin;
  AcnhWheel _wheel;int _wheelButton;CADisplayLink *_toolLink;
  uint64_t _faceBits,_btnBits;BOOL _checkingTextField,_nativeTextOpen,_showRunIcon;
 }
@@ -80,7 +82,7 @@ static __weak DmGamepad *g_view;
    if(b==B_LS)continue;_key[b]=acnhControlOutline(self.layer);
    if(b==B_RS)continue;
    if(b==B_L_TOP||b==B_R||b==B_PLUS||b==B_MINUS){
-    CATextLayer *t=[CATextLayer layer];t.string=b==B_L_TOP?@"L":b==B_R?@"R":b==B_PLUS?@"+":@"−";t.alignmentMode=kCAAlignmentCenter;t.contentsScale=UIScreen.mainScreen.scale;t.foregroundColor=[UIColor colorWithWhite:1 alpha:.5].CGColor;[_key[b] addSublayer:t];_label[b]=t;
+    CATextLayer *t=[CATextLayer layer];t.string=b==B_L_TOP?@"L":b==B_R?@"R":b==B_PLUS?@"+":@"−";t.alignmentMode=kCAAlignmentCenter;t.contentsScale=acnh_view_display_scale(self);t.foregroundColor=[UIColor colorWithWhite:1 alpha:.5].CGColor;[_key[b] addSublayer:t];_label[b]=t;
    }else _glyph[b]=glyph(_key[b],b);
   }
   _rightKnob=acnhControlOutline(self.layer);_glyph[B_RS]=glyph(_rightKnob,B_RS);
@@ -104,6 +106,7 @@ static __weak DmGamepad *g_view;
 }
 - (CGFloat)radius:(int)b{return [self baseRadius:b]*acnh_pad_scale(@"acnh",[NSString stringWithFormat:@"button.%d",b]);}
 - (CGPoint)atX:(CGFloat)x y:(CGFloat)y radius:(CGFloat)radius{
+ x=acnh_inset_control_x(x,acnh_has_hinge(self));
  CGRect r=UIEdgeInsetsInsetRect(self.bounds,self.safeAreaInsets);CGFloat m=radius+3;
  return CGPointMake(MAX(CGRectGetMinX(r)+m,MIN(CGRectGetMaxX(r)-m,x*self.bounds.size.width)),MAX(CGRectGetMinY(r)+m,MIN(CGRectGetMaxY(r)-m,y*self.bounds.size.height)));
 }
@@ -115,6 +118,7 @@ static __weak DmGamepad *g_view;
  }
  CGFloat x=0,y=0;
  switch(b){
+ case B_CAPTURE:x=.5;y=.847;break;
  case B_A:x=.919;y=.792;break;case B_B:x=.785;y=.775;break;case B_X:x=.875;y=.435;break;case B_Y:x=.811;y=.592;break;
  case B_ZL:x=.775;y=.40;break;case B_ZR:x=.785;y=.19;break;case B_RS:x=.919;y=.30;break;
  case B_L:x=.742;y=.658;break;case B_R:x=.849;y=.134;break;case B_PLUS:x=.904;y=.134;break;case B_MINUS:x=.096;y=.134;break;
@@ -129,7 +133,7 @@ static __weak DmGamepad *g_view;
 - (CGPoint)stickHome{return acnh_pad_point(@"acnh",@"stick",[self atX:.15625 y:.74074 radius:self.stickR],self,self.stickR);}
 - (NSArray<NSDictionary *> *)acnhEditableControls{
  NSMutableArray *out=[NSMutableArray array];
- NSArray *names=@[@"A · 互动",@"B · 返回/跑步",@"X · 背包",@"Y · 拾取",@"L3",@"视角",@"L · 跳跃",@"R · 输入",@"ZL · 手机",@"ZR · 表情",@"+",@"−",@"工具左",@"工具环",@"工具右",@"收起工具",@"左上 L"];
+ NSArray *names=@[@"A · 互动",@"B · 返回/跑步",@"X · 背包",@"Y · 拾取",@"L3",@"视角",@"L · 跳跃",@"R · 输入",@"ZL · 手机",@"ZR · 表情",@"+",@"−",@"工具左",@"工具环",@"工具右",@"收起工具",@"左上 L",@"截图"];
  for(int b=0;b<B_N;b++)if(b!=B_LS)[out addObject:acnh_pad_control([NSString stringWithFormat:@"button.%d",b],names[b],[self buttonCenter:b],[self radius:b])];
  [out addObject:acnh_pad_control(@"stick",@"移动摇杆",self.stickHome,self.stickR)];return out;
 }
@@ -151,7 +155,7 @@ static __weak DmGamepad *g_view;
  uint64_t buttons=0;for(UITouch *t in _owner){uint64_t owner=[_owner objectForKey:t].unsignedLongLongValue;if((owner&255)==C_BTN)buttons|=1ull<<inputButton((int)(owner>>8));}
  AcnhAxis left=_stick?acnh_axis(_stickNow.x-self.stickHome.x,_stickNow.y-self.stickHome.y,self.stickR):(AcnhAxis){0};
  CGPoint rc=[self buttonCenter:B_RS];AcnhAxis right=_camera?acnh_axis(_cameraNow.x-rc.x,_cameraNow.y-rc.y,[self radius:B_RS]):(AcnhAxis){0};
- touch_feedback_update(_touchFeedback,&_feedbackEdges,buttons|(_toolTouch?(1ull<<_wheelButton):0),(_stick?1u:0)|(_camera?2u:0),NO);
+ touch_feedback_update(_touchFeedback,&_feedbackEdges,buttons|(_captureTouch?(1ull<<63):0)|(_toolTouch?(1ull<<_wheelButton):0),(_stick?1u:0)|(_camera?2u:0),NO);
  AcnhWheelOutput tool=acnh_wheel_sample(&_wheel,CACurrentMediaTime());if(tool.active){buttons|=tool.buttons;left=tool.axis;}
  if(!_wheel.active){[_toolLink invalidate];_toolLink=nil;}
  _btnBits=buttons;_faceBits=0;pthread_mutex_lock(&g_mu);g_touch_btn=buttons;g_touch_lx=(int32_t)(left.x*32767);g_touch_ly=(int32_t)(left.y*32767);g_touch_rx=(int32_t)(right.x*32767);g_touch_ry=(int32_t)(right.y*32767);pthread_mutex_unlock(&g_mu);publish();[self refresh];
@@ -174,7 +178,7 @@ static __weak DmGamepad *g_view;
 }
 // Probe only after R or a field tap, including the island-name and chat layouts.
 - (void)probeTextKeyboard:(NSUInteger)remaining {
-    if(_checkingTextField||_nativeTextOpen)return;
+    if(_checkingTextField||_nativeTextOpen||_screenshotPending)return;
     _checkingTextField=YES;
     extern void mtl_grab_next_present(void (^cb)(CGImageRef));
     __weak DmGamepad *weakSelf=self;
@@ -207,10 +211,26 @@ static __weak DmGamepad *g_view;
     [self probeTextKeyboard:0];return NO;
 }
 
+// Capture only the game render, excluding the virtual controls; use the camera export path.
+- (void)captureGameScreen {
+ if(_screenshotPending||_checkingTextField||_nativeTextOpen)return;
+ _screenshotPending=YES;
+ extern void mtl_grab_next_present(void (^cb)(CGImageRef));
+ extern int dm_caps_save_image(CGImageRef,uint8_t[32]);
+ __weak DmGamepad *weakSelf=self;
+ mtl_grab_next_present(^(CGImageRef image){
+  if(image)CGImageRetain(image);
+  dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY,0),^{
+   uint8_t entry[32]={0};if(image){dm_caps_save_image(image,entry);CGImageRelease(image);}
+   dispatch_async(dispatch_get_main_queue(),^{DmGamepad *view=weakSelf;if(view)view->_screenshotPending=NO;});
+  });
+ });
+}
 // Each finger owns one control; B can stay held while a second finger moves the left stick.
 - (void)touchesBegan:(NSSet<UITouch *> *)ts withEvent:(UIEvent *)event{
  for(UITouch *t in ts){
   CGPoint p=[t locationInView:self];int hit=[self buttonAt:p];
+  if(hit==B_CAPTURE){if(!_captureTouch){_captureTouch=t;[_owner setObject:@(C_CAPTURE) forKey:t];[self captureGameScreen];}continue;}
   if(hit==B_UP||hit==B_ZR){if(!_wheel.active){[_owner setObject:@(C_TOOL) forKey:t];[self beginTool:t button:hit];}continue;}
   if(hit>=0){if(hit==B_R)[self requestChatText];if(hit==B_B)[self cancelTool];[_owner setObject:@(C_BTN|((uint64_t)hit<<8)) forKey:t];continue;}
   if(!_camera&&distance(p,[self buttonCenter:B_RS])<=[self radius:B_RS]*1.15){_camera=t;_cameraNow=p;[_owner setObject:@(C_CAMERA) forKey:t];continue;}
@@ -229,6 +249,7 @@ static __weak DmGamepad *g_view;
 - (void)finishTouches:(NSSet<UITouch *> *)ts cancelled:(BOOL)cancelled{
  for(UITouch *t in ts){
   if(t==_toolTouch){if(cancelled)[self cancelTool];else{CGPoint p=[t locationInView:self];acnh_wheel_move(&_wheel,p.x-_toolOrigin.x,p.y-_toolOrigin.y,self.toolWheelR);_toolTouch=nil;acnh_wheel_end(&_wheel,CACurrentMediaTime());}}
+  if(t==_captureTouch)_captureTouch=nil;
   if(t==_stick)_stick=nil;if(t==_camera)_camera=nil;[_owner removeObjectForKey:t];[_screenTouches removeObjectForKey:t];
  }
  [self recompute];[self publishScreenTouches];
@@ -236,14 +257,14 @@ static __weak DmGamepad *g_view;
 - (void)touchesEnded:(NSSet<UITouch *> *)ts withEvent:(UIEvent *)event{[self finishTouches:ts cancelled:NO];}
 - (void)touchesCancelled:(NSSet<UITouch *> *)ts withEvent:(UIEvent *)event{[self finishTouches:ts cancelled:YES];}
 - (void)reset{
- extern void dm_acnh_text_cancel(void);dm_acnh_text_cancel();[self cancelTool];[_screenTouches removeAllObjects];dm_touch_set(NULL,0);[_owner removeAllObjects];_stick=nil;_camera=nil;[self recompute];
+ extern void dm_acnh_text_cancel(void);dm_acnh_text_cancel();[self cancelTool];[_screenTouches removeAllObjects];dm_touch_set(NULL,0);[_owner removeAllObjects];_stick=nil;_camera=nil;_captureTouch=nil;[self recompute];
 }
 - (void)layoutSubviews{
  [super layoutSubviews];[CATransaction begin];[CATransaction setDisableActions:YES];
  for(int b=0;b<B_N;b++)if(_key[b]){
   CGPoint c=[self buttonCenter:b];CGFloat r=[self radius:b];setPath(_key[b],circlePath(c,r));
   if(b!=B_RS&&_glyph[b])positionGlyph(_glyph[b],c,r*(b==B_A?.98:1.10));
-  if(_label[b])placeLabel(_label[b],c,r*.85);
+  if(_label[b]){_label[b].contentsScale=acnh_view_display_scale(self);placeLabel(_label[b],c,r*.85);}
  }
  setPath(_ring,circlePath(self.stickHome,self.stickR));setPath(_knob,circlePath(CGPointZero,self.stickR*.37));
  setPath(_rightKnob,circlePath(CGPointZero,[self radius:B_RS]*.64));positionGlyph(_glyph[B_RS],CGPointZero,[self radius:B_RS]*.84);
@@ -253,7 +274,7 @@ static __weak DmGamepad *g_view;
 - (void)refresh{
  [CATransaction begin];[CATransaction setDisableActions:YES];
  for(int b=0;b<B_N;b++)if(_key[b]){
-  BOOL on=(_btnBits&(1ull<<inputButton(b)))!=0;if(b==_wheelButton&&_wheel.active)on=YES;if(b==B_RS)on=_camera!=nil;
+  BOOL on=(_btnBits&(1ull<<inputButton(b)))!=0;if(b==_wheelButton&&_wheel.active)on=YES;if(b==B_RS)on=_camera!=nil;if(b==B_CAPTURE)on=_captureTouch!=nil;
   _key[b].fillColor=[UIColor colorWithWhite:on?1:0 alpha:on?.30:(b>=B_LEFT&&b<=B_DOWN?.10:.15)].CGColor;
   _key[b].strokeColor=[UIColor colorWithRed:.92 green:.87 blue:.71 alpha:b>=B_LEFT&&b<=B_DOWN?.44:.60].CGColor;
   _glyph[b].strokeColor=[UIColor colorWithWhite:on?0:1 alpha:on?.8:.8].CGColor;

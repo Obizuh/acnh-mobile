@@ -46,6 +46,8 @@ jobs:
           python tools/test_prepare_game.py
           python tools/test_nro_embed.py
           python tools/test_album_save.py
+          clang -fobjc-arc dm/host/tests/t_caps_pixels.m dm/host/caps_photo.m -framework Foundation -framework CoreGraphics -framework ImageIO -framework UniformTypeIdentifiers -o "$RUNNER_TEMP/t-caps-pixels"
+          "$RUNNER_TEMP/t-caps-pixels"
           python tools/test_launcher.py
           python tools/test_own_compilers.py
           python dm/gfx/tools/test_dmsh_alpha.py

@@ -1,5 +1,6 @@
 #import "PadCustomization.h"
 #import "PadLayoutMath.h"
+#import "AdaptiveGameLayout.h"
 #include <stdlib.h>
 #include <string.h>
 static NSString *editBase;
@@ -18,7 +19,7 @@ static NSDictionary *values(NSString *base){
 static CGFloat number(id v,CGFloat fallback){return pad_number(v,fallback);}
 CGFloat acnh_pad_scale(NSString *base,NSString *key){return pad_scale(values(base),key);}
 CGPoint acnh_pad_point(NSString *base,NSString *key,CGPoint p,UIView *v,CGFloat margin){
- return pad_point(values(base),key,p,v.bounds,UIEdgeInsetsInsetRect(v.bounds,v.safeAreaInsets),margin);
+ return acnh_control_point(v,pad_point(values(base),key,p,v.bounds,UIEdgeInsetsInsetRect(v.bounds,v.safeAreaInsets),margin),margin);
 }
 NSDictionary *acnh_pad_control(NSString *key,NSString *name,CGPoint p,CGFloat r){return @{ @"key":key,@"name":name,@"x":@(p.x),@"y":@(p.y),@"r":@(r)};}
 static NSString *L(NSString *en,NSString *zh){return [NSLocale.preferredLanguages.firstObject hasPrefix:@"zh"]?zh:en;}
@@ -29,7 +30,7 @@ static NSString *L(NSString *en,NSString *zh){return [NSLocale.preferredLanguage
  UIView<ACNHEditablePad> *_pad;NSMutableArray<UIButton *> *_handles;NSString *_selected;UILabel *_title;UISlider *_size;UIButton *_choose;UIView *_panel;CGPoint _panelOffset;
 }
 - (void)viewDidLoad{
- [super viewDidLoad];self.view.backgroundColor=[UIColor colorWithRed:.05 green:.13 blue:.15 alpha:1];
+ [super viewDidLoad];self.view.backgroundColor=[UIColor colorWithRed:.05 green:.13 blue:.15 alpha:1];acnh_observe_display(self.view);
  editBase=self.base;draft=[NSMutableDictionary dictionary];
  NSDictionary *saved=[NSUserDefaults.standardUserDefaults dictionaryForKey:storeKey(self.base)];
  for(id key in saved)if([key isKindOfClass:NSString.class] && [saved[key] isKindOfClass:NSDictionary.class])draft[key]=saved[key];
@@ -44,7 +45,7 @@ static NSString *L(NSString *en,NSString *zh){return [NSLocale.preferredLanguage
  [self rebuild];
 }
 - (void)viewDidLayoutSubviews{
- [super viewDidLayoutSubviews];_pad.frame=self.view.bounds;[_pad setNeedsLayout];[_pad layoutIfNeeded];
+ [super viewDidLayoutSubviews];_pad.frame=acnh_has_hinge(self.view)?acnh_game_frame(self.view):self.view.bounds;[_pad setNeedsLayout];[_pad layoutIfNeeded];
  CGFloat w=MIN(400,self.view.bounds.size.width-32),x=(self.view.bounds.size.width-w)/2,y=self.view.bounds.size.height-self.view.safeAreaInsets.bottom-110;
  x=MAX(0,MIN(self.view.bounds.size.width-w,x+_panelOffset.x));y=MAX(self.view.safeAreaInsets.top,MIN(self.view.bounds.size.height-104,y+_panelOffset.y));
  _panel.frame=CGRectMake(x,y,w,104);_title.frame=CGRectMake(4,2,w-8,20);
@@ -62,7 +63,7 @@ static NSString *L(NSString *en,NSString *zh){return [NSLocale.preferredLanguage
 }
 - (void)refresh{
  [_pad setNeedsLayout];[_pad layoutIfNeeded];NSArray *controls=[_pad acnhEditableControls];
- for(NSUInteger i=0;i<MIN(controls.count,_handles.count);i++){NSDictionary *d=controls[i];UIButton *b=_handles[i];CGFloat r=MAX(14,[d[@"r"] doubleValue]);b.frame=CGRectMake([d[@"x"] doubleValue]-r,[d[@"y"] doubleValue]-r,r*2,r*2);b.layer.cornerRadius=r;BOOL selected=[_selected isEqual:d[@"key"]];b.layer.borderColor=(selected?UIColor.systemYellowColor:UIColor.systemTealColor).CGColor;if(selected){[_choose setTitle:d[@"name"] forState:UIControlStateNormal];_size.value=acnh_pad_scale(self.base,_selected);}}
+ for(NSUInteger i=0;i<MIN(controls.count,_handles.count);i++){NSDictionary *d=controls[i];UIButton *b=_handles[i];CGFloat r=MAX(14,[d[@"r"] doubleValue]);CGPoint c=[_pad convertPoint:CGPointMake([d[@"x"] doubleValue],[d[@"y"] doubleValue]) toView:self.view];b.frame=CGRectMake(c.x-r,c.y-r,r*2,r*2);b.layer.cornerRadius=r;BOOL selected=[_selected isEqual:d[@"key"]];b.layer.borderColor=(selected?UIColor.systemYellowColor:UIColor.systemTealColor).CGColor;if(selected){[_choose setTitle:d[@"name"] forState:UIControlStateNormal];_size.value=acnh_pad_scale(self.base,_selected);}}
  [self.view bringSubviewToFront:_panel];
 }
 - (void)movePanel:(UIPanGestureRecognizer *)g{CGPoint p=[g translationInView:self.view];_panelOffset.x+=p.x;_panelOffset.y+=p.y;[g setTranslation:CGPointZero inView:self.view];[self.view setNeedsLayout];}
@@ -71,9 +72,9 @@ static NSString *L(NSString *en,NSString *zh){return [NSLocale.preferredLanguage
  UIButton *b=(id)g.view;_selected=b.accessibilityIdentifier;CGPoint delta=[g translationInView:self.view];[g setTranslation:CGPointZero inView:self.view];
  NSMutableDictionary *d=[draft[_selected] mutableCopy]?:[NSMutableDictionary dictionary];
  // Use the currently clamped position as the next origin, avoiding accumulated off-screen drag.
- CGPoint before=b.center;CGFloat r=b.bounds.size.width/2;CGRect safe=UIEdgeInsetsInsetRect(self.view.bounds,self.view.safeAreaInsets);
+ CGPoint before=b.center;CGFloat r=b.bounds.size.width/2;CGRect safe=[_pad convertRect:UIEdgeInsetsInsetRect(_pad.bounds,_pad.safeAreaInsets) toView:self.view];
  CGPoint want=CGPointMake(MAX(CGRectGetMinX(safe)+r,MIN(CGRectGetMaxX(safe)-r,before.x+delta.x)),MAX(CGRectGetMinY(safe)+r,MIN(CGRectGetMaxY(safe)-r,before.y+delta.y)));
- d[@"dx"]=@(number(d[@"dx"],0)+(want.x-before.x)/self.view.bounds.size.width);d[@"dy"]=@(number(d[@"dy"],0)+(want.y-before.y)/self.view.bounds.size.height);draft[_selected]=d;[self refresh];
+ d[@"dx"]=@(number(d[@"dx"],0)+(want.x-before.x)/_pad.bounds.size.width);d[@"dy"]=@(number(d[@"dy"],0)+(want.y-before.y)/_pad.bounds.size.height);draft[_selected]=d;[self refresh];
 }
 - (void)resize:(UISlider *)s{if(!_selected)return;NSMutableDictionary *d=[draft[_selected] mutableCopy]?:[NSMutableDictionary dictionary];d[@"scale"]=@(s.value);
  // Keep the center fixed while resizing; the safe-area clamp is applied below.

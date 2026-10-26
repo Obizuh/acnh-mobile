@@ -23,6 +23,7 @@
 #include "haptics_apple.h"
 #include "game_profile.h"
 #import "PadCustomization.h"
+#import "AdaptiveGameLayout.h"
 #import "TouchFeedback.h"
 
 enum { B_A = 0, B_B, B_X, B_Y, B_LS, B_RS, B_L, B_R, B_ZL, B_ZR, B_PLUS, B_MINUS, B_LEFT, B_UP, B_RIGHT, B_DOWN, B_N };
@@ -369,6 +370,8 @@ static void placeLabel(CATextLayer *t, CGPoint c, CGFloat fs) {
 
 - (void)layoutSubviews {
     [super layoutSubviews];
+    for(int i=0;i<B_N;i++)_label[i].contentsScale=acnh_view_display_scale(self);
+    _swapLabel.contentsScale=acnh_view_display_scale(self);
     CGFloat u = self.u;
     [CATransaction begin]; [CATransaction setDisableActions:YES];
     _controls.frame = self.layer.bounds;
