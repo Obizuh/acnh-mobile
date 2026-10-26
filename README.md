@@ -42,7 +42,7 @@ Credits and licenses: [NXNative](https://github.com/seedds/nxnative), [D2R Mobil
 
 ## Local launchers
 
-Two root `.command` launchers build a private IPA or a private IPA plus external data. Choose your own game folder and prod.keys to extract, rewrite and translate official Metal shaders, with automatic dependency installation; existing prepared inputs can also be reused; see [local launcher guide](docs/ONE-CLICK.zh-CN.md).
+Download and extract the complete project, then double-click a root `.command` launcher to create an iPhone IPA, an IPA with external data, or a standalone Mac app. Choose your game folder, prod.keys and output folder in the three dialogs; no terminal commands or configuration edits are required. Dependencies are checked automatically, and generated build caches are cleaned after successful output validation. See the [local launcher guide](docs/ONE-CLICK.zh-CN.md).
 
 ## Mac app
 

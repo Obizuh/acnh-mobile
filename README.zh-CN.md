@@ -30,7 +30,7 @@ GitHub Actions 在 main 运行 **Build game-free iOS shell**，勾选 publish �
 
 ## 本地一键入口
 
-Mac 用户可双击项目根目录的「一键生成完整IPA.command」「一键生成IPA和数据包.command」。选择自备游戏目录与 prod.keys，自动补齐可安装依赖，完成提取、程序改写和官方着色器转换；也支持复用已有匹配输入。版本自动读取项目配置。详见 [一键构建说明](docs/ONE-CLICK.zh-CN.md)。
+完整下载并解压项目后，双击根目录的「一键生成IPA和数据包.command」「一键生成完整IPA.command」或「一键生成Mac应用.command」。依次选择自己的游戏目录、prod.keys 和成品保存文件夹，脚本便会自动检查并补齐依赖、完成制作；无需输入命令或编辑配置。成品校验成功后自动清理本次制作缓存，保留成品、日志和原始输入。详见 [一键构建说明](docs/ONE-CLICK.zh-CN.md)。
 
 ## 制作 Mac 应用
 
