@@ -21,6 +21,7 @@
 #include "../tex/nvn_deswizzle_gpu.h"
 #include "nvn_builtin.h"
 #include "nvn_dirty.h"
+#include "nvn_depth_clear.h"
 #include "nvn_refl.h"
 #include "nvn_cover.h"
 #include "nvn_primitive.h"
@@ -85,6 +86,11 @@ static uint64_t g_vbuf_resolve, g_vbuf_reuse, g_vbuf_set, g_vbuf_skip;
 static id<MTL4ArgumentTable> g_present_args;
 static id<MTLBuffer> g_present_uv[3];
 static uint64_t g_present_alloc_fence[3];
+// Under g_pq_mu: per present allocator, the newest ticket its commit feedback reported done on the GPU. present_now resets an allocator only once this reaches the ticket that
+// last used it. g_pq_done is not that: every display-link callback sets it to ticket - 1 (the previous present was committed, not run) and a present that was not submitted sets
+// it to its own ticket. Waiting on g_pq_done, a display-link present never waited here: with three presents in flight, or two after a dropped frame, the allocator was reset
+// under a present the GPU had not run, and that present's drawable read back black (t_present_alloc; docs/reference/frame-rate.md)
+static uint64_t g_present_alloc_done[3];
 static pthread_mutex_t g_pq_mu = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t g_pq_cv = PTHREAD_COND_INITIALIZER;
 static pthread_cond_t g_link_cv = PTHREAD_COND_INITIALIZER;
@@ -2693,8 +2699,8 @@ static id<MTL4RenderCommandEncoder> rp_begin_ex_(int clear_only) {
         if (pd.depthAttachment.texture) {
             any = 1;
             pd.depthAttachment.loadAction = R.clear_d ? MTLLoadActionClear : MTLLoadActionLoad;
-            pd.depthAttachment.clearDepth = R.cd; pd.depthAttachment.storeAction = MTLStoreActionStore;
             MTLPixelFormat pf = pd.depthAttachment.texture.pixelFormat;
+            pd.depthAttachment.clearDepth = pf == MTLPixelFormatDepth16Unorm ? nvn_depth16_clear_value(R.cd) : R.cd; pd.depthAttachment.storeAction = MTLStoreActionStore;
             if (clear_only != 4 && (pf == MTLPixelFormatDepth32Float_Stencil8 || pf == MTLPixelFormatStencil8)) {   // 4: depth only
                 pd.stencilAttachment.texture = pd.depthAttachment.texture; pd.stencilAttachment.level = pd.depthAttachment.level;
                 pd.stencilAttachment.slice = pd.depthAttachment.slice;
@@ -7548,7 +7554,7 @@ static void clear_tex(const p_clear_tex *c) {
         MTLRenderPassAttachmentDescriptor *a = depth ? rp.depthAttachment : stencil ? rp.stencilAttachment : rp.colorAttachments[0];
         a.texture = t; a.level = lv; a.loadAction = MTLLoadActionClear; a.storeAction = MTLStoreActionStore;
         if (is3d) a.depthPlane = c->r.zoffset + z; else a.slice = l0 + c->r.zoffset + z;
-        if (depth) { rp.depthAttachment.clearDepth = c->c.f[0];
+        if (depth) { rp.depthAttachment.clearDepth = pf == MTLPixelFormatDepth16Unorm ? nvn_depth16_clear_value(c->c.f[0]) : c->c.f[0];
             if (stencil) { rp.stencilAttachment.texture = t; rp.stencilAttachment.level = lv; rp.stencilAttachment.slice = a.slice; rp.stencilAttachment.loadAction = MTLLoadActionClear;
                            rp.stencilAttachment.storeAction = MTLStoreActionStore; rp.stencilAttachment.clearStencil = c->c.u[1]; } }
         else if (stencil) rp.stencilAttachment.clearStencil = c->c.u[0];
@@ -8353,7 +8359,7 @@ static int present_now(const tex_t *t, double period, uint64_t frame, uint64_t t
     int alloc_i = (int)(ticket % 3);
     if (g_present_alloc_fence[alloc_i]) {
         pthread_mutex_lock(&g_pq_mu);
-        while (g_pq_done < g_present_alloc_fence[alloc_i]) pthread_cond_wait(&g_pq_cv, &g_pq_mu);
+        while (g_present_alloc_done[alloc_i] < g_present_alloc_fence[alloc_i]) pthread_cond_wait(&g_pq_cv, &g_pq_mu);
         pthread_mutex_unlock(&g_pq_mu);
     }
     [g_present_alloc4[alloc_i] reset];
@@ -8365,7 +8371,7 @@ static int present_now(const tex_t *t, double period, uint64_t frame, uint64_t t
     MTL4CommitOptions *o = [MTL4CommitOptions new];
     [o addFeedbackHandler:^(id<MTL4CommitFeedback> f) {
         if (f.error) MLOG("[RED] display command buffer error: %s", f.error.description.UTF8String);
-        pthread_mutex_lock(&g_pq_mu); if (ticket > g_pq_done) g_pq_done = ticket; g_pq_inflight--; pthread_cond_broadcast(&g_pq_cv); pthread_mutex_unlock(&g_pq_mu);
+        pthread_mutex_lock(&g_pq_mu); if (ticket > g_pq_done) g_pq_done = ticket; if (ticket > g_present_alloc_done[alloc_i]) g_present_alloc_done[alloc_i] = ticket; g_pq_inflight--; pthread_cond_broadcast(&g_pq_cv); pthread_mutex_unlock(&g_pq_mu);
     }];
     id<MTL4CommandBuffer> buffers[] = {cb};
     pthread_mutex_lock(&g_pq_mu); g_pq_inflight++; pthread_mutex_unlock(&g_pq_mu);

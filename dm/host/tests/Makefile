@@ -120,3 +120,9 @@ $(B)/t_heap_size: t_heap_size.c ../hle_svc.c ../dm.h $(GAME_H) | $(B)
 heap_size: $(B)/t_heap_size
 	$(B)/t_heap_size
 run: heap_size
+
+$(B)/t_audren_work: t_audren_work.c ../hle_audren.c ../hle.h ../dm.h $(GAME_H) | $(B)
+	clang -O1 -g -Wall -Werror -Wno-unused-function -I.. $(GINC) -o $@ t_audren_work.c
+audren-work: $(B)/t_audren_work
+	$(B)/t_audren_work
+run: audren-work

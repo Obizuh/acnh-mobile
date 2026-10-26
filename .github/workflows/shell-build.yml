@@ -15,7 +15,9 @@ concurrency:
   cancel-in-progress: false
 jobs:
   shell:
-    runs-on: macos-26
+    runs-on: xcode-27
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_27.1.app/Contents/Developer
     timeout-minutes: 45
     permissions:
       contents: write
@@ -24,6 +26,14 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - name: Require Duo-capable SDK
+        run: |
+          xcodebuild -version
+          python3 - <<'PY'
+          import subprocess
+          sdk=subprocess.check_output(["xcrun","--sdk","iphoneos","--show-sdk-version"],text=True).strip()
+          assert tuple(map(int,sdk.split(".")[:2])) >= (27,1), "Duo testing release requires iOS 27.1 SDK"
+          PY
       - name: Validate version and publication target
         env:
           SHOULD_PUBLISH: ${{ github.ref_type == 'tag' || inputs.publish }}
@@ -48,6 +58,10 @@ jobs:
           python tools/test_album_save.py
           clang -fobjc-arc dm/host/tests/t_caps_pixels.m dm/host/caps_photo.m -framework Foundation -framework CoreGraphics -framework ImageIO -framework UniformTypeIdentifiers -o "$RUNNER_TEMP/t-caps-pixels"
           "$RUNNER_TEMP/t-caps-pixels"
+          clang -Wall -Wextra -Werror dm/ios/tests/t_adaptive_layout.c -framework CoreGraphics -o "$RUNNER_TEMP/t-adaptive-layout"
+          "$RUNNER_TEMP/t-adaptive-layout"
+          clang -fobjc-arc dm/ios/tests/t_save_file_coordinator.m dm/ios/Sources/SaveFileCoordinator.m -framework Foundation -o "$RUNNER_TEMP/t-save-coordinator"
+          "$RUNNER_TEMP/t-save-coordinator"
           python tools/test_launcher.py
           python tools/test_own_compilers.py
           python dm/gfx/tools/test_dmsh_alpha.py
@@ -68,19 +82,28 @@ jobs:
           "$RUNNER_TEMP/t-pad-layout"
           clang -fobjc-arc dm/ios/tests/t_log_files.m -framework Foundation -o "$RUNNER_TEMP/t-log-files"
           "$RUNNER_TEMP/t-log-files"
-          make -C dm/host/tests GAME=01006F8002326000 build/t_hid build/t_audren_open build/t_haptics build/t_haptics_apple build/t_gesture build/t_nro
+          make -C dm/host/tests GAME=01006F8002326000 build/t_hid build/t_audren_open build/t_audren_work build/t_haptics build/t_haptics_apple build/t_gesture build/t_nro
           dm/host/tests/build/t_haptics
           dm/host/tests/build/t_haptics_apple
           dm/host/tests/build/t_gesture
           dm/host/tests/build/t_nro
           dm/host/tests/build/t_hid
           dm/host/tests/build/t_audren_open
+          dm/host/tests/build/t_audren_work
       - name: Install project generator
         run: brew install xcodegen
       - name: Build official Metal 4 shell without game files
         run: python tools/build_shell.py --work "$RUNNER_TEMP/shell-work" --output "$RUNNER_TEMP/shell-output"
       - name: Verify exact IPA contents, metadata and Metal 4 build
-        run: python tools/verify_shell.py "$RUNNER_TEMP/shell-output"
+        run: |
+          python tools/verify_shell.py "$RUNNER_TEMP/shell-output"
+          python - <<'PY'
+          import os,pathlib,zipfile
+          p=next((pathlib.Path(os.environ["RUNNER_TEMP"])/"shell-output").glob("*.ipa"))
+          with zipfile.ZipFile(p) as z:
+              binary=z.read(next(n for n in z.namelist() if n.endswith(".app/DmIOS")))
+              assert b"UIHingeInteraction" in binary and b"reservedRegionsOfKind:" in binary, "Duo code was compiled out"
+          PY
       - uses: actions/upload-artifact@v4
         with:
           name: ACNHMobile-iOS26-v${{ env.APP_VERSION }}-build${{ env.APP_BUILD }}-shell
