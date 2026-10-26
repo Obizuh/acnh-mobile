@@ -6,16 +6,10 @@ ROOT=Path(__file__).resolve().parents[1]
 TITLE='01006F8002326000'
 
 def picker(kind):
-    steps={'game':(1,'动森游戏目录（仅支持游戏 3.0.3）','请选择同时包含本体和 3.0.3 更新 NSP 的文件夹，其他更新版本无法构建。'),
-           'keys':(2,'prod.keys 文件','请选择 prod.keys 文件，不要选择文件夹或 title.keys。'),
-           'output':(3,'成品保存文件夹','请选择生成结果的保存位置，可以新建文件夹。')}
-    number,subject,detail=steps[kind]
-    if sys.stdout.isatty() and os.environ.get('TERM')!='dumb' and 'NO_COLOR' not in os.environ:
-        subject='\033[1;31m'+subject+'\033[0m'
-    print('\n第 '+str(number)+' 步 / 共 3 步：选择 '+subject+'\n'+detail,flush=True)
-    result=subprocess.run(['xcrun','swift',ROOT/'tools/choose_build_input.swift',kind],capture_output=True,text=True)
+    # Swift uses macOS preferred languages for both the native top message and terminal step prompt.
+    result=subprocess.run(['xcrun','swift',ROOT/'tools/choose_build_input.swift',kind],stdout=subprocess.PIPE,text=True)
     if result.returncode==130:raise ValueError('已取消选择，未生成或删除任何安装包。')
-    if result.returncode:raise ValueError('无法打开文件选择窗口：'+result.stderr)
+    if result.returncode:raise ValueError('无法打开文件选择窗口：'+(result.stderr or '请查看上方终端输出。'))
     p=Path(result.stdout.strip()).expanduser().resolve()
     if not p.exists():raise ValueError('选择的文件或目录不存在。')
     return p
