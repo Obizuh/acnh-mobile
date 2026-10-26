@@ -90,6 +90,9 @@ jobs:
           dm/host/tests/build/t_hid
           dm/host/tests/build/t_audren_open
           dm/host/tests/build/t_audren_work
+          make -C dm/host/tests GAME=01006F8002326000 build/t_fs_commit_list build/t_audio_device
+          dm/host/tests/build/t_fs_commit_list
+          dm/host/tests/build/t_audio_device
       - name: Install project generator
         run: brew install xcodegen
       - name: Build official Metal 4 shell without game files
