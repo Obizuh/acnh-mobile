@@ -70,6 +70,30 @@ class LocalBuildTests(unittest.TestCase):
             outside=Path(tmp)/'outside';outside.mkdir();(outside/'keep').write_text('owned');(job/'build-work').symlink_to(outside,target_is_directory=True)
             m.cleanup_success(work,job,out,dict(build_root=cache/'source'),True)
             self.assertTrue(cache.exists());self.assertTrue((outside/'keep').exists())
+    def test_cross_device_data_publish_verifies_before_final_rename(self):
+        import errno
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);romfs=root/'romfs';(romfs/'Shader').mkdir(parents=True);(romfs/m.MARKER).write_bytes(b'marker')
+            source=root/'source';target=root/'output';subprocess.run([sys.executable,m.ROOT/'tools/pack_data.py',romfs,source],check=True,stdout=subprocess.DEVNULL)
+            rename=Path.rename
+            def cross_device(path,dest):
+                if path==source:raise OSError(errno.EXDEV,'cross device')
+                return rename(path,dest)
+            with patch.object(Path,'rename',cross_device):m.publish_data(source,target)
+            self.assertEqual(m.verify_data(target),(1,1));self.assertFalse(source.exists())
+    def test_failed_cross_device_copy_preserves_source_and_existing_ipa(self):
+        import errno
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);source=root/'source';source.mkdir();(source/'ACNH-index.data').write_bytes(b'index');target=root/'target'
+            def bad_copy(src,dst):
+                dst.mkdir();(dst/'ACNH-index.data').write_bytes(b'broken')
+            with patch.object(Path,'rename',side_effect=OSError(errno.EXDEV,'cross device')),patch.object(m.shutil,'copytree',side_effect=bad_copy):
+                with self.assertRaises(ValueError):m.publish_data(source,target)
+            self.assertTrue(source.exists());self.assertFalse(target.exists())
+            ipa=root/'source.ipa';ipa.write_bytes(b'new');dest=root/'old.ipa';dest.write_bytes(b'old')
+            with self.assertRaises(ValueError):m.publish_ipa(ipa,dest,'wrong digest')
+            self.assertEqual(dest.read_bytes(),b'old');self.assertEqual(ipa.read_bytes(),b'new')
+            m.publish_ipa(ipa,root/'new.ipa',m.sha(ipa));self.assertFalse(ipa.exists());self.assertEqual((root/'new.ipa').read_bytes(),b'new')
     def test_data_roundtrip_corruption_and_missing_part(self):
         with tempfile.TemporaryDirectory() as tmp:
             base=Path(tmp);romfs=base/'romfs';(romfs/'Shader').mkdir(parents=True)

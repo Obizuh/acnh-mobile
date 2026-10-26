@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Local launchers for private iOS packages and standalone Mac apps."""
-import argparse,fcntl,hashlib,json,os,platform,plistlib,re,shutil,struct,subprocess,sys,time,uuid,zipfile
+import argparse,errno,fcntl,hashlib,json,os,platform,plistlib,re,shutil,struct,subprocess,sys,time,uuid,zipfile
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
 PROFILE=ROOT/'dm/games/01006F8002326000'
@@ -179,6 +179,40 @@ def run(command,log):
         for line in proc.stdout:print(line,end='',flush=True);log.write(line);log.flush()
         if proc.wait():raise RuntimeError('构建失败，请查看日志。')
 
+def publish_data(source,target):
+    """Publish verified data across volumes without exposing a partial destination."""
+    if target.exists():raise ValueError('数据输出目录已存在，未覆盖：'+str(target))
+    try:source.rename(target);return
+    except OSError as error:
+        if error.errno!=errno.EXDEV:raise
+    stage=target.parent/('.'+target.name+'-copy-'+uuid.uuid4().hex)
+    print('跨磁盘输出：正在复制并校验数据包，请稍候…',flush=True)
+    try:
+        shutil.copytree(source,stage)
+        if sha(source/'ACNH-index.data')!=sha(stage/'ACNH-index.data'):raise ValueError('跨磁盘复制后的数据索引校验失败。')
+        verify_data(stage)
+        if target.exists():raise ValueError('数据输出目录已存在，未覆盖：'+str(target))
+        stage.rename(target)
+    finally:
+        if stage.exists():shutil.rmtree(stage)
+    # Source removal waits until the complete destination has been validated and published.
+    try:shutil.rmtree(source)
+    except OSError as error:print('数据已输出，原临时副本未清理：'+str(error),flush=True)
+
+def publish_ipa(source,target,digest):
+    """Copy into destination volume, verify, then replace the visible IPA atomically."""
+    stage=target.parent/('.'+target.name+'-copy-'+uuid.uuid4().hex)
+    try:
+        shutil.copy2(source,stage)
+        if sha(stage)!=digest:raise ValueError('复制后的 IPA 校验失败，未替换已有安装包。')
+        if target.exists():trash_file(target)
+        stage.replace(target)
+    finally:
+        if stage.exists():stage.unlink()
+    try:source.unlink()
+    except OSError as error:print('IPA 已输出，原临时副本未清理：'+str(error),flush=True)
+
+
 def cleanup_success(work,job,output,data,raw,protected=()):
     """Remove only this verified build's generated files; keep logs and all user inputs."""
     work,job,output=map(lambda p:Path(p).resolve(),(work,job,output))
@@ -224,7 +258,6 @@ def main():
     version=json.loads((ROOT/'config/version.json').read_text());data={}
     if raw:
         from prepare_game import picker,raw_plan,prepare
-        print('请选择自己的动森游戏目录，然后选择 prod.keys。',flush=True)
         game=a.game_dir or (picker('game') if a.select or not settings.get('game_dir') else Path(settings['game_dir']))
         keys=a.keys or (picker('keys') if a.select or not settings.get('keys') else Path(settings['keys']))
         # Dependency setup may restart Python. Carry chosen paths so it does not reopen the panels.
@@ -232,7 +265,6 @@ def main():
         if a.keys is None:sys.argv+=['--keys',str(keys)]
     if a.select and a.output_dir is None:
         from prepare_game import picker
-        print('请选择生成结果的保存文件夹。',flush=True)
         output=picker('output')
         sys.argv+=['--output-dir',str(output)]
     if not a.plan:build_dependencies.ensure(raw=raw,mac=a.platform=='mac')
@@ -287,15 +319,15 @@ def main():
                     if n!=count or romfs_fingerprint(data['romfs'])[0]!=fingerprint:raise ValueError('打包期间 RomFS 来源改变，未发布数据包。')
                     (stage/'.source.json').write_text(json.dumps(dict(fingerprint=fingerprint,files=n,parts=parts)))
                     (stage/'acnh-pack.json').unlink()
-                    stage.rename(target)
+                    publish_data(stage,target)
                 else:
                     print('复用已有数据包，校验中…',flush=True);verify_data(target)
                 print('数据包：'+str(target),flush=True)
             name='ACNHMobile-'+'v'+version['version']+'-build'+str(version['build'])+'-unsigned.ipa'
             dest=output/name
             # Keep a previously successful output recoverable until a verified replacement is ready.
-            if dest.exists():trash_file(dest)
-            made.rename(dest);dest.with_suffix('.ipa.sha256').write_text(digest+'  '+dest.name+'\n')
+            publish_ipa(made,dest,digest)
+            dest.with_suffix('.ipa.sha256').write_text(digest+'  '+dest.name+'\n')
             retain_two(output,dest)
             cleanup_success(work,job,output,data,raw,(game,keys) if raw else ())
             print('\n完成：'+str(dest),flush=True)
