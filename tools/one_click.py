@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Local launchers for private IPA and IPA plus external data."""
+"""Local launchers for private iOS packages and standalone Mac apps."""
 import argparse,fcntl,hashlib,json,os,platform,plistlib,re,shutil,struct,subprocess,sys,time,uuid,zipfile
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
@@ -78,6 +78,16 @@ def inspect_ipa(path,version,kind):
         if any('/romfs/' in n.lower() for n in names):raise ValueError('RomFS 不应装入 IPA。')
         if kind=='private' and not any('/msl/' in n and n.endswith('.metallib') for n in names):raise ValueError('完整 IPA 缺少已转换的着色器。')
     return sha(path)
+
+def inspect_mac_app(path,version):
+    contents=path/'Contents';info=plistlib.loads((contents/'Info.plist').read_bytes())
+    if info.get('CFBundleIdentifier')!='org.acnhmobile.experimental' or info.get('CFBundleShortVersionString')!=version['version']:
+        raise ValueError('Mac 应用标识或版本号不匹配。')
+    name=info.get('CFBundleExecutable','')
+    if not name or Path(name).name!=name:raise ValueError('Mac 应用程序入口无效。')
+    executable=contents/'MacOS'/name
+    if not executable.is_file() or not os.access(executable,os.X_OK):raise ValueError('Mac 应用缺少可执行程序。')
+
 
 def romfs_fingerprint(root):
     h=hashlib.sha256();count=0
@@ -169,25 +179,64 @@ def run(command,log):
         for line in proc.stdout:print(line,end='',flush=True);log.write(line);log.flush()
         if proc.wait():raise RuntimeError('构建失败，请查看日志。')
 
+def cleanup_success(work,job,output,data,raw,protected=()):
+    """Remove only this verified build's generated files; keep logs and all user inputs."""
+    work,job,output=map(lambda p:Path(p).resolve(),(work,job,output))
+    if job.parent!=work:raise ValueError('清理目录不属于当前构建。')
+    keep=[output,*[Path(p).resolve() for p in protected]]
+    if not raw:keep += [Path(data[k]).resolve() for k in ('build_root','patched','romfs','shaders','font')]
+    # A standalone app must not lose a dependency if a future packer adds external links.
+    app=output/'ACNH Mobile.app'
+    if app.is_dir():keep += [p.resolve() for p in app.rglob('*') if p.is_symlink()]
+    targets=[job/'build-work',job/'mac-work']
+    if raw:
+        source=Path(data['build_root']).resolve()
+        if source.name=='source' and source.parent.parent==work/'prepared':targets.append(source.parent)
+    for target in targets:
+        if not target.exists():continue
+        real=target.resolve()
+        if target.is_symlink() or real!=target or not real.is_relative_to(work) or any(p==real or p.is_relative_to(real) for p in keep):
+            print('保留与成品或输入重叠的缓存：'+str(target),flush=True);continue
+        try:
+            log_root=job/'retained-logs'/target.name
+            for log in target.rglob('*.log'):
+                if log.is_symlink() or not log.is_file():continue
+                dest=log_root/log.relative_to(target);dest.parent.mkdir(parents=True,exist_ok=True);shutil.copy2(log,dest)
+            shutil.rmtree(target)
+        except OSError as error:
+            print('成品已生成，但部分缓存未能清理：'+str(error),flush=True)
+    print('本次缓存清理已完成；成品、原始输入、已安装依赖及日志保留。',flush=True)
+
+
 def main():
-    ap=argparse.ArgumentParser(description=__doc__);ap.add_argument('mode',choices=['ipa','ipa-data']);ap.add_argument('--platform',choices=['ios','mac'],default='ios',help='Mac is a development-only build with no IPA');ap.add_argument('--plan',action='store_true');ap.add_argument('--select',action='store_true',help='选择游戏目录和 prod.keys');ap.add_argument('--game-dir',type=Path);ap.add_argument('--keys',type=Path);ap.add_argument('--config',type=Path,default=CONFIG);a=ap.parse_args()
+    ap=argparse.ArgumentParser(description=__doc__);ap.add_argument('mode',choices=['ipa','ipa-data','mac-app']);ap.add_argument('--platform',choices=['ios','mac'],default='ios',help='Mac is a development-only build with no IPA');ap.add_argument('--plan',action='store_true');ap.add_argument('--select',action='store_true',help='选择游戏目录和 prod.keys');ap.add_argument('--game-dir',type=Path);ap.add_argument('--keys',type=Path);ap.add_argument('--output-dir',type=Path,help='生成结果的保存文件夹');ap.add_argument('--config',type=Path,default=CONFIG);a=ap.parse_args()
     settings=json.loads(a.config.read_text()) if a.config.is_file() else {}
+    if a.mode=='mac-app':a.platform='mac'
     settings['platform']=a.platform
-    if a.platform=='mac' and a.mode!='ipa':raise ValueError('Mac development mode does not build an IPA or Data package.')
+    if a.platform=='mac' and a.mode=='ipa-data':raise ValueError('Mac development mode does not build an IPA or Data package.')
     python=settings.get('python')
     if python and not os.environ.get('ACNH_DEPENDENCIES_READY') and Path(python).absolute()!=Path(sys.executable).absolute():os.execv(python,[python,str(Path(__file__).resolve()),*sys.argv[1:]])
     if platform.system()!='Darwin' or platform.machine()!='arm64':raise ValueError('需要 Apple Silicon Mac。')
     import build_dependencies
     raw=(a.select or a.game_dir is not None or settings.get('input_mode')=='raw' or not (os.environ.get('ACNH_DATA_ROOT') or any(settings.get(k) for k in ('data_root','patched','romfs','shaders'))))
-    if not a.plan:build_dependencies.ensure(raw=raw,mac=a.platform=='mac')
-    output=Path(settings.get('output_root') or ROOT/'outputs').expanduser().resolve()
+    output=Path(a.output_dir or settings.get('output_root') or ROOT/'outputs').expanduser().resolve()
     work=Path(settings.get('work_root') or ROOT/'work/local-build').expanduser().resolve()
     version=json.loads((ROOT/'config/version.json').read_text());data={}
     if raw:
         from prepare_game import picker,raw_plan,prepare
+        print('请选择自己的动森游戏目录，然后选择 prod.keys。',flush=True)
         game=a.game_dir or (picker('game') if a.select or not settings.get('game_dir') else Path(settings['game_dir']))
         keys=a.keys or (picker('keys') if a.select or not settings.get('keys') else Path(settings['keys']))
-        raw_plan(game,keys)
+        # Dependency setup may restart Python. Carry chosen paths so it does not reopen the panels.
+        if a.game_dir is None:sys.argv+=['--game-dir',str(game)]
+        if a.keys is None:sys.argv+=['--keys',str(keys)]
+    if a.select and a.output_dir is None:
+        from prepare_game import picker
+        print('请选择生成结果的保存文件夹。',flush=True)
+        output=picker('output')
+        sys.argv+=['--output-dir',str(output)]
+    if not a.plan:build_dependencies.ensure(raw=raw,mac=a.platform=='mac')
+    if raw:raw_plan(game,keys)
     else:data=inputs(settings)
     if a.plan:
         print(json.dumps(dict(mode=a.mode,version=version,output=str(output),work=str(work),inputs={k:str(v) for k,v in data.items()},dependencies=build_dependencies.ensure(raw=raw,plan=True,mac=a.platform=='mac'),raw=raw),ensure_ascii=False,indent=2));return
@@ -204,6 +253,16 @@ def main():
                 prepared=prepare(game,keys,work,run,log,platform=a.platform)
                 settings.update({k:str(v) for k,v in prepared.items()});settings['data_root']=str(game)
                 data=inputs(settings)
+            if a.mode=='mac-app':
+                dest=output/'ACNH Mobile.app'
+                command=[sys.executable,data['build_root']/'tools/public_setup.py','mac-app']
+                for key in ('patched','romfs','shaders','font'):command+=['--'+key,data[key]]
+                command+=['--work',job/'mac-work','--output',dest];run(command,log)
+                inspect_mac_app(dest,version)
+                cleanup_success(work,job,output,data,raw,(game,keys) if raw else ())
+                print('\n完成：'+str(dest),flush=True)
+                print('双击应用即可运行；不需要 iOS 的 .data。构建日志已保留，下次制作会重新准备缓存。',flush=True)
+                return
             if a.platform=='mac':
                 command=[sys.executable,data['build_root']/'tools/public_setup.py','mac']
                 for key in ('patched','romfs','shaders','font'):command+=['--'+key,data[key]]
@@ -238,6 +297,7 @@ def main():
             if dest.exists():trash_file(dest)
             made.rename(dest);dest.with_suffix('.ipa.sha256').write_text(digest+'  '+dest.name+'\n')
             retain_two(output,dest)
+            cleanup_success(work,job,output,data,raw,(game,keys) if raw else ())
             print('\n完成：'+str(dest),flush=True)
             print('仅保留最近两份 IPA；数据和存档不会清理。',flush=True)
             print('未签名。完整包需整包签名并配合外置 .data 使用。',flush=True)
