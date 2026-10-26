@@ -20,8 +20,8 @@ case "output":
     button = "保存到此文件夹"
 default:
     step = "第 1 步 / 共 3 步"
-    subject = "选择动森游戏目录"
-    detail = "请选择包含动森本体和 3.0.3 更新 NSP 的文件夹，不要选择单个游戏文件。"
+    subject = "动森游戏目录 · 仅支持 3.0.3"
+    detail = "当前仅支持游戏 3.0.3。请选择同时包含本体和 3.0.3 更新 NSP 的文件夹，其他更新版本无法构建。"
     button = "使用此游戏目录"
 }
 
@@ -53,7 +53,7 @@ heading.textColor = .systemRed
 heading.frame = NSRect(x: 0, y: 42, width: 540, height: 28)
 let caption = NSTextField(wrappingLabelWithString: detail)
 caption.font = .systemFont(ofSize: 13)
-caption.textColor = .secondaryLabelColor
+caption.textColor = kind == "game" ? .systemRed : .secondaryLabelColor
 caption.frame = NSRect(x: 0, y: 0, width: 540, height: 36)
 accessory.addSubview(heading)
 accessory.addSubview(caption)

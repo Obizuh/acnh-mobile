@@ -6,7 +6,7 @@ ROOT=Path(__file__).resolve().parents[1]
 TITLE='01006F8002326000'
 
 def picker(kind):
-    steps={'game':(1,'动森游戏目录','请选择包含本体和 3.0.3 更新 NSP 的文件夹。'),
+    steps={'game':(1,'动森游戏目录（仅支持游戏 3.0.3）','请选择同时包含本体和 3.0.3 更新 NSP 的文件夹，其他更新版本无法构建。'),
            'keys':(2,'prod.keys 文件','请选择 prod.keys 文件，不要选择文件夹或 title.keys。'),
            'output':(3,'成品保存文件夹','请选择生成结果的保存位置，可以新建文件夹。')}
     number,subject,detail=steps[kind]
