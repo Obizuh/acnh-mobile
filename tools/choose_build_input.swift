@@ -56,20 +56,6 @@ panel.title = subject
 panel.message = "\(step): \(detail)"
 panel.prompt = button
 
-// Native titles use system styling; use a prominent red accessory heading as well.
-let accessory = NSView(frame: NSRect(x: 0, y: 0, width: 540, height: 72))
-let heading = NSTextField(labelWithString: subject)
-heading.font = .systemFont(ofSize: 21, weight: .bold)
-heading.textColor = .systemRed
-heading.frame = NSRect(x: 0, y: 42, width: 540, height: 28)
-let caption = NSTextField(wrappingLabelWithString: detail)
-caption.font = .systemFont(ofSize: 13)
-caption.textColor = kind == "game" ? .systemRed : .secondaryLabelColor
-caption.frame = NSRect(x: 0, y: 0, width: 540, height: 36)
-accessory.addSubview(heading)
-accessory.addSubview(caption)
-panel.accessoryView = accessory
-panel.isAccessoryViewDisclosed = true
 let keyDelegate = KeySelectionDelegate()
 if kind == "keys" { panel.delegate = keyDelegate }
 app.activate(ignoringOtherApps: true)
