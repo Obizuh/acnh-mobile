@@ -175,3 +175,12 @@ t_upload_budget: t_upload_budget.m $(MTL_T_DEP)
 
 t_present_rescue: t_present_rescue.m t_present_rescue_focus.c $(MTL_T_DEP)
 	clang $(CFLAGS) -fobjc-arc -o $@ t_present_rescue.m t_present_rescue_focus.c $(MTL_T_SRC) $(FW)
+
+t_depth16_clear: t_depth16_clear.m $(MTL_T_DEP)
+	clang $(CFLAGS) -fobjc-arc -o $@ t_depth16_clear.m $(MTL_T_SRC) $(FW)
+
+t_present_alloc: t_present_alloc.m $(MTL_T_DEP)
+	clang $(CFLAGS) -fobjc-arc -o $@ t_present_alloc.m $(MTL_T_SRC) $(FW)
+
+t_tex_layout: t_tex_layout.c ../nvn/nvn_tex.c ../nvn/nvn_tex.h
+	clang -O1 -Wall -o $@ t_tex_layout.c ../nvn/nvn_tex.c

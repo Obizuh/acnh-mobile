@@ -77,3 +77,9 @@ t_pool_lifetime
 t_upload_budget
 t_present_rescue
 t_present_rescue_focus
+
+t_depth16_clear
+t_present_alloc
+t_tex_layout
+
+/t_alpha

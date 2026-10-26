@@ -56,6 +56,9 @@ static _Atomic uint64_t g_txn_first_ns;     // time of this transaction's first 
 static _Atomic int g_save_poison;
 static void save_poison(int e) { int z = 0; atomic_compare_exchange_strong(&g_save_poison, &z, e ? e : EIO); }
 // The default weak implementation only logs (Mac); the iOS front end provides a strong implementation of the same name that shows a native alert. Called on the game thread, the front end switches to the main thread itself
+// iOS overrides this with NSFileCoordinatorWritingForReplacing; the host
+// keeps the same atomic exchange. No per-file or non-atomic save fallback.
+__attribute__((weak)) int front_save_swap(const char *replacement,const char *committed) { return renamex_np(replacement,committed,RENAME_SWAP); }
 __attribute__((weak)) void front_save_failed(int err) { LOG("front_save_failed(errno=%d): no front end attached (default weak implementation)", err); }
 // DM_FSLOG=<file>: each ReadFile logs one TSV line "seconds since boot\tguest path\toffset\tlength\tguest buffer address" (which bytes boot read, for offline reverse lookup against the manifest)
 static FILE *g_fslog; static char *g_fdpath[4096]; static pthread_mutex_t g_fslog_lock = PTHREAD_MUTEX_INITIALIZER;
@@ -475,7 +478,7 @@ static Result commit_mount_locked(int i, int *notify_error) {
     if (!access(neu, F_OK)) rm_tree(neu);
     if (clonefile(g_mnt[i].dir, neu, 0)) { LOG("[RED] save commit: clonefile %s failed errno=%d (committed version unchanged)", neu, errno); r = RES_FAIL; }
     else if (getenv("ACNH_HIDE_RUNTIME_DIRS") && dm_directory_hidden(neu,0)) { LOG("[RED] save commit: cannot clear cloned hidden attribute errno=%d (committed version unchanged)",errno); rm_tree(neu); r=RES_FAIL; }
-    else if (renamex_np(neu, g_mnt[i].commit, RENAME_SWAP)) { LOG("[RED] save commit: atomic swap failed errno=%d (committed version unchanged)", errno); rm_tree(neu); r = RES_FAIL; }
+    else if (front_save_swap(neu, g_mnt[i].commit)) { LOG("[RED] save commit: atomic swap failed errno=%d (committed version unchanged)", errno); rm_tree(neu); r = RES_FAIL; }
     else rm_tree(neu);                                                  // the old version that was swapped out
     // Timing readouts (integer microseconds, no floating point): how long the clone + atomic swap took; how long in total from this transaction's first save write to the end of the commit (the game writing files + the commit; 0 = no save write in this transaction)
     static int n; if (r == RES_OK) { uint64_t tc2 = clock_gettime_nsec_np(CLOCK_MONOTONIC);

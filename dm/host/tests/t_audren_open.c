@@ -5,6 +5,8 @@
 #define HLE_FORCE(mangled, why, ret, cname, ...) static ret cname(__VA_ARGS__)
 #include "../hle_audren.c"
 static int checks, fails, starts, joins, in_event, expect_event, ready, fail_open;
+// These legacy cases pass no work buffer, so no host-owned backing is registered.
+void *objmap_del(const void *key) { (void)key; return NULL; }
 #define CHECK(c) do{checks++;if(!(c)){fails++;fprintf(stderr,"FAIL %d: %s\n",__LINE__,#c);}}while(0)
 static Result sdk_open(void **h,const uint8_t *p,void *w,size_t z){
  (void)w;(void)z;CHECK(*(int32_t*)(p+P_DEVICE)==1);CHECK(*(int32_t*)(p+P_MODE)==1);

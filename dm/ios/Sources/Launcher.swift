@@ -270,7 +270,8 @@ private final class LandscapeLauncherController: UIHostingController<LauncherVie
     }
     @objc private func checkStartupOrientation() {
         let now = CACurrentMediaTime()
-        let landscape = view.window?.windowScene?.interfaceOrientation.isLandscape == true && view.bounds.width > view.bounds.height
+        // The inner display does not report orientation like the outer display.
+        let landscape = view.bounds.width > view.bounds.height
         let ready = UIApplication.shared.applicationState == .active && landscape && !transitioning
         if ready { if stableSince == nil { stableSince = now } } else { stableSince = nil }
         let settled = stableSince.map { now - $0 >= 0.18 } ?? false

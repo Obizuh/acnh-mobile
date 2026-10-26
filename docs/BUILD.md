@@ -43,3 +43,5 @@ The one chain header is `dm/gfx/nvn/dmsh_chain.h` (currently `fa64eaf62c3e`). A 
 ## Standalone Mac app
 
 `./setup.sh mac-app` packs a double-clickable Apple silicon app using the upstream launcher. Raw game input and matching prepared Mac inputs are supported. See [Mac tutorial](MAC-APP.zh-CN.md) for commands, signing, saves and logs.
+
+Duo testing releases use Xcode 27.1 / iOS 27.1 SDK (`xcode-27` on GitHub Actions) so the Duo adaptation is compiled in. The deployment target remains iOS 26.

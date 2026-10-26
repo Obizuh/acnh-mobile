@@ -2,6 +2,7 @@
 // The host runs on the big-stack thread started by main.m; front_run runs the guest directly on the calling thread.
 #import <UIKit/UIKit.h>
 #import "ACNHResourceGate.h"
+#import "AdaptiveGameLayout.h"
 int front_ios_load_resources(const char *root);
 #import <QuartzCore/CAMetalLayer.h>
 #import <Metal/Metal.h>
@@ -32,15 +33,22 @@ static UILabel *front_ios_fps_label(void);
     if ((self = [super initWithFrame:f])) {
         CAMetalLayer *l = (CAMetalLayer *)self.layer;
         l.device = MTLCreateSystemDefaultDevice(); l.pixelFormat = MTLPixelFormatBGRA8Unorm;
-        l.contentsScale = UIScreen.mainScreen.nativeScale; l.framebufferOnly = NO; l.opaque = YES;
+        l.contentsScale = acnh_view_display_scale(self); l.framebufferOnly = NO; l.opaque = YES;
         self.backgroundColor = UIColor.blackColor;
     }
     return self;
 }
+- (void)didMoveToWindow { [super didMoveToWindow];[self setNeedsLayout]; }
+- (void)traitCollectionDidChange:(UITraitCollection *)previous {
+    [super traitCollectionDidChange:previous];
+    if(previous.displayScale!=self.traitCollection.displayScale)[self setNeedsLayout];
+}
 - (void)layoutSubviews {
     [super layoutSubviews];
     CAMetalLayer *l = (CAMetalLayer *)self.layer;
-    l.drawableSize = CGSizeMake(self.bounds.size.width * l.contentsScale, self.bounds.size.height * l.contentsScale);
+    l.contentsScale = acnh_view_display_scale(self);
+    CGSize pixels=CGSizeMake(self.bounds.size.width*l.contentsScale,self.bounds.size.height*l.contentsScale);
+    if(!CGSizeEqualToSize(l.drawableSize,pixels))l.drawableSize=pixels;
 }
 @end
 
@@ -59,6 +67,7 @@ static void launcher_done(void) { [g_root startGame]; }
 - (void)viewDidLoad {
     [super viewDidLoad];
     self.view.backgroundColor = UIColor.blackColor;
+    acnh_observe_display(self.view);
     front_ios_power_watch();
     self.loadLabel=[[UILabel alloc] initWithFrame:CGRectInset(self.view.bounds,40,40)];
     self.loadLabel.autoresizingMask=UIViewAutoresizingFlexibleWidth|UIViewAutoresizingFlexibleHeight;
@@ -89,13 +98,26 @@ static void launcher_done(void) { [g_root startGame]; }
 - (void)viewDidLayoutSubviews {
     [super viewDidLayoutSubviews];
     CGRect b = self.view.bounds; if (!self.game) return;
-    CGFloat w = b.size.width, h = b.size.height;   // Fit 16:9 into the whole screen
-    if (w / h > 16.0 / 9.0) w = h * 16.0 / 9.0; else h = w * 9.0 / 16.0;
-    self.game.frame = CGRectMake(floor((b.size.width - w) / 2), floor((b.size.height - h) / 2), w, h);
+    CGRect previous=self.pad.frame;
+    self.game.frame=acnh_game_frame(self.view);
+    self.pad.frame=acnh_has_hinge(self.view)?self.game.frame:b;
+    if(acnh_has_hinge(self.view)&&!CGRectEqualToRect(previous,self.pad.frame))dm_gamepad_reset();
+    [self.game setNeedsLayout];[self.pad setNeedsLayout];
     if (self.fps) {   // the top row's free stretch: right of DmGamepad.m's L3 key (102 + 17 of its units from the safe edge), level with − / + (22 units down); u is its unit
         CGRect s = UIEdgeInsetsInsetRect(b, self.view.safeAreaInsets); CGFloat u = MIN(b.size.height / 430.0, 1.3);
         self.fps.frame = CGRectMake(floor(CGRectGetMinX(s) + 130 * u), floor(CGRectGetMinY(s) + 22 * u - 11), 64, 22);
     }
+}
+- (void)viewWillTransitionToSize:(CGSize)size withTransitionCoordinator:(id<UIViewControllerTransitionCoordinator>)coordinator {
+    [super viewWillTransitionToSize:size withTransitionCoordinator:coordinator];
+    if(acnh_has_hinge(self.view))dm_gamepad_reset();
+    __weak DmRootVC *weakSelf=self;
+    [coordinator animateAlongsideTransition:^(id<UIViewControllerTransitionCoordinatorContext> context){
+        (void)context;[weakSelf.view setNeedsLayout];[weakSelf.view layoutIfNeeded];
+    } completion:^(id<UIViewControllerTransitionCoordinatorContext> context){
+        (void)context;[weakSelf.view setNeedsLayout];
+        if(acnh_has_hinge(weakSelf.view))dm_gamepad_reset();
+    }];
 }
 - (void)viewDidAppear:(BOOL)a {
     [super viewDidAppear:a];UIApplication.sharedApplication.idleTimerDisabled=YES;
