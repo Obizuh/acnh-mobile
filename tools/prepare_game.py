@@ -113,7 +113,8 @@ def prepare(game,keys,work,run,log,platform='ios'):
     u.run([sys.executable,repo/'dm/gfx/tools/tool_lock.py','--update-lock'],logs/'tool-lock.log',env=env)
     u.chain_header(sys.executable,repo,env,logs)
     sh=cache/'shader'
-    key=u.split_shaders(sys.executable,repo,[ex/'RomFS'],[ex/'ExeFS/main'],sh/'pkg',env,logs,g,dlc_roms=dlc_roms)
+        # upstream 20f632d switched extract() to nx_extract --romfs-image: RomFS now lives in RomFS.img, so the old RomFS/ dir path is dead. rfs.source() resolves to the image (falling back to the dir for old extractions), like every other split_shaders caller.
+        key=u.split_shaders(sys.executable,repo,[u.rfs.source(ex)],[ex/'ExeFS/main'],sh/'pkg',env,logs,g,dlc_roms=dlc_roms)
     ios=u.build_shaders(sys.executable,repo,sh,xlate,env,logs,g,pkg_key=key,mac=platform=='mac')
     chain=u.chain_of(repo)   # build_shaders also generates/validates both local tables, even on reuse
     data=dict(patched=patched,romfs=ex/'RomFS',shaders=ios,build_root=repo,chain=chain,aoc=aoc)
