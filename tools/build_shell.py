@@ -63,7 +63,13 @@ def main():
     (gen/'dm/shell_info.json').write_text(json.dumps(metadata,indent=2)+'\n')
     subprocess.run(['xcodegen','generate','-q'],cwd=ios,env=e,check=True)
     with (a.work/'xcodebuild.log').open('w') as log:
-        subprocess.run(['xcodebuild','-project','DmIOS.xcodeproj','-scheme','DmIOS','-configuration','Release','-destination','generic/platform=iOS','-derivedDataPath',str(a.work/'dd'),'CODE_SIGNING_ALLOWED=NO','CODE_SIGNING_REQUIRED=NO','CODE_SIGN_IDENTITY=','build'],cwd=ios,env=e,stdout=log,stderr=subprocess.STDOUT,check=True)
+        try:
+            subprocess.run(['xcodebuild','-project','DmIOS.xcodeproj','-scheme','DmIOS','-configuration','Release','-destination','generic/platform=iOS','-derivedDataPath',str(a.work/'dd'),'CODE_SIGNING_ALLOWED=NO','CODE_SIGNING_REQUIRED=NO','CODE_SIGN_IDENTITY=','build'],cwd=ios,env=e,stdout=log,stderr=subprocess.STDOUT,check=True)
+        except subprocess.CalledProcessError:
+            log.flush()
+            print('--- xcodebuild.log tail ---')
+            print((a.work/'xcodebuild.log').read_text()[-20000:])
+            raise
     original=a.work/'dd/Build/Products/Release-iphoneos/DmIOS.app'
     stage=a.work/'stage/Payload/ACNHMobile.app'; stage.parent.mkdir(parents=True); shutil.copytree(original,stage)
     for name in ['_CodeSignature','embedded.mobileprovision']:
