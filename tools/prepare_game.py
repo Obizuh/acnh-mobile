@@ -15,16 +15,21 @@ def picker(kind):
     return p
 
 def load_pipeline():
-    spec=importlib.util.spec_from_file_location('upstream_nsp',ROOT/'tools/upstream/nsp_pipeline.py')
+    spec=importlib.util.spec_from_file_location('upstream_nsp',ROOT/'scripts/build_ipa_from_nsp.py')
     module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
     module.BuildError=ValueError
+    official_mac_run=module.mac_run
+    def mac_run(py,repo,work,game,patched,msl,aoc,gfx,lang,env,logs,g,env_file=''):
+        host,font=module.mac_host(py,repo,work,env,logs,g)
+        return official_mac_run(work,game,patched,host,font,msl,aoc,gfx,lang,env,logs,g,env_file)
+    module.mac_run=mac_run
     return module
 
 def raw_plan(game,keys):
     game=Path(game).expanduser().resolve();keys=Path(keys).expanduser().resolve()
     if keys.is_dir():keys=keys/'prod.keys'
     if not keys.is_file():raise ValueError('请选择自己的 prod.keys 文件。')
-    u=load_pipeline();app,family=u.scan_nsps(game)
+    u=load_pipeline();app,family=u.scan_nsps(game,dlc_subdirs=True)
     if app!=int(TITLE,16):raise ValueError('所选目录不是动森，请选择仅含动森的目录。')
     if len(family['updates'])!=1:raise ValueError('目录中请只保留一个 3.0.3 更新 NSP，避免选错版本。')
     version,update=family['updates'][0]
@@ -35,11 +40,11 @@ def cache_key(family):
     # Fingerprint input contents, never key values. A new input set gets a separate cache.
     from build_shell import source_id
     h=hashlib.sha256(source_id(ROOT).encode())
-    for p in [family['base'],family['updates'][0][1]]:
+    for p in [family['base'],family['updates'][0][1],*[p for _,_,p in sorted(family.get('dlc',[]))]]:
         h.update(p.name.encode());h.update(str(p.stat().st_size).encode());h.update(str(p.stat().st_mtime_ns).encode())
     for base in ('tools','dm/tools','dm/gfx/tools','dm/games/'+TITLE,'dm/third_party/ryujinx'):
         for p in sorted((ROOT/base).rglob('*')):
-            if p.is_file() and p.name not in ('c1_full.tsv','cb_extent.tsv') and p.suffix in ('.py','.cs','.csproj','.tsv','.h','.lock') and not any(x in ('obj','bin','__pycache__') for x in p.parts):h.update(p.read_bytes())
+            if p.is_file() and p.name not in ('c1_full.tsv','cb_extent.tsv') and p.suffix in ('.py','.cs','.csproj','.tsv','.h','.lock','.metal') and not any(x in ('obj','bin','__pycache__') for x in p.parts):h.update(p.read_bytes())
     return h.hexdigest()[:20]
 
 def translator_preflight(xlate,env,log):
@@ -88,21 +93,30 @@ def prepare(game,keys,work,run,log,platform='ios'):
     xlate=repo/'dm/gfx/tools/dmsh_xlate_bin/dmsh_xlate'
     u.PROG.stage('build official shader translator')
     u.run(['dotnet','publish',repo/'dm/gfx/tools/dmsh_xlate','-c','Release','-o',xlate.parent],logs/'translator.log',env=env);u.PROG.end()
+    dotnet=shutil.which('dotnet')
+    if dotnet:env.setdefault('DOTNET_ROOT',str(Path(dotnet).resolve().parent))
+    cross=repo/'dm/gfx/tools/spirv_cross_bin/spirv-cross'
+    if not cross.is_file():u.run(['sh',repo/'dm/gfx/tools/spirv_cross_bin/build.sh',cache/'spirv-cross-build'],logs/'spirv-cross.log',env=env)
     env['XLATE']=str(xlate)
     translator_preflight(xlate,env,logs/'translator-preflight.log')
     u.PROG.stage('build extraction tool')
     nx=u.build_nx_extract(repo,cache,logs,env);u.PROG.end()
+    family=u.decompress_nsz(game,int(TITLE,16),family,keys,env,work=cache)
     ex=u.extract(nx,keys,cache/'extract','3.0.3',family['base'],family['updates'][0][1],None,logs,g)
     bad=u.build_mismatch(ex,'v2228224',g)
     if bad:raise ValueError('游戏版本不匹配：'+', '.join(bad))
+    aoc=u.extract_aoc(nx,keys,repo,cache,int(TITLE,16),family,logs)
+    if aoc is None:
+        aoc=cache/'aoc';aoc.mkdir(exist_ok=True)
+    dlc_roms=sorted(p for p in aoc.iterdir() if p.is_dir() or p.suffix=='.img')
     patched=cache/'patched';u.rewrite(sys.executable,repo,ex/'ExeFS',patched,env,logs,g)
-    for flag in ('--update-lock','--header'):
-        u.run([sys.executable,repo/'dm/gfx/tools/dmsh_chain.py',flag],logs/('chain'+flag+'.log'),env=env)
+    u.run([sys.executable,repo/'dm/gfx/tools/tool_lock.py','--update-lock'],logs/'tool-lock.log',env=env)
+    u.chain_header(sys.executable,repo,env,logs)
     sh=cache/'shader'
-    key=u.split_shaders(sys.executable,repo,[ex/'RomFS'],[ex/'ExeFS/main'],sh/'pkg',env,logs,g)
+    key=u.split_shaders(sys.executable,repo,[ex/'RomFS'],[ex/'ExeFS/main'],sh/'pkg',env,logs,g,dlc_roms=dlc_roms)
     ios=u.build_shaders(sys.executable,repo,sh,xlate,env,logs,g,pkg_key=key,mac=platform=='mac')
     chain=u.chain_of(repo)   # build_shaders also generates/validates both local tables, even on reuse
-    data=dict(patched=patched,romfs=ex/'RomFS',shaders=ios,build_root=repo,chain=chain)
+    data=dict(patched=patched,romfs=ex/'RomFS',shaders=ios,build_root=repo,chain=chain,aoc=aoc)
     # Written only after every stage succeeds; later IPA construction validates the cache again.
     manifest.write_text(json.dumps({k:str(v) for k,v in data.items()}))
     return data

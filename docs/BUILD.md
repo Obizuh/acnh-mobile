@@ -18,7 +18,7 @@ python -m pip install -r requirements.txt
 
 `--patched` contains official rewritten `main`, `subsdk0`, `sdk` images and their fixups/gates/cuts/obs tables. Supported 3.0.3 build IDs are recorded in `dm/games/01006F8002326000/game.tsv`. Use rewritten inputs matching this official source, not outputs from older project releases.
 
-`--shaders` is the parent of the complete matching `b-<chain>` cache, including reflection JSON and shadow-input variants. The v0.3.8 geometry integration uses `b-ade9bce36598` with the pinned upstream tools. Rebuild older shader caches; external RomFS `.data` remains compatible. Do not mix old project shader patches, chain metadata or translation binaries with the official runtime. For fresh extraction/rewriting/translation, follow the official source procedure in the upstream [README](https://github.com/seedds/nxnative/tree/e72a06510e6dfff4a77c49fd205a82e21cad0786); per-game tools are retained under `dm/`. Translating with a different toolchain requires regenerating the chain header, Mac/iOS shaders, c1/constant-buffer tables together and rebuilding the runtime. The checked-in chain lock is provenance, not a redistributable translator binary.
+`--shaders` is the parent of the complete matching `b-<chain>` cache, including reflection JSON and shadow-input variants. The current generic synchronization uses the chain recorded in `dm/gfx/nvn/dmsh_chain.h`; the local build pins its actual translator and compiler before generating shaders. Rebuild older shader caches; external RomFS `.data` remains compatible. Do not mix old project shader patches, chain metadata or translation binaries with the official runtime. For fresh extraction/rewriting/translation, follow the official source procedure in the upstream [README](https://github.com/seedds/nxnative/tree/f11018a1f3125ec3046c30faae6147956a1a7c60); per-game tools are retained under `dm/`. Translating with a different toolchain requires regenerating the chain header, Mac/iOS shaders, c1/constant-buffer tables together and rebuilding the runtime. The checked-in chain lock is provenance, not a redistributable translator binary.
 
 RomFS is checked as a local input but stays external. Existing 3.0.3 `.data` files work. To create a new pack:
 
@@ -36,7 +36,7 @@ v0.3.15 uses chain `665e6ad0479d`. Generated `c1_full.tsv` and `cb_extent.tsv` a
 
 ### v0.3.16 Mac development mode
 
-The one chain header is `dm/gfx/nvn/dmsh_chain.h` (currently `fa64eaf62c3e`). A full shader build creates `inputs.tsv` and both matching tables. Rebuild older caches; never copy an old stamp to new outputs.
+The one chain header is `dm/gfx/nvn/dmsh_chain.h` (currently `e90503c2d6f2`). A full shader build creates `inputs.tsv` and both matching tables. Rebuild older caches; never copy an old stamp to new outputs.
 
 `./setup.sh mac --patched <prepared> --romfs <RomFS> --shaders <Mac-cache-parent> --font <ttf> --work <work>` builds the Mac host and writes `<work>/run-mac.command`; add `--run` to launch it. Saves stay under `<work>/run/save`. Raw preparation is available with `python3 tools/one_click.py ipa --platform mac --game-dir <NSP-directory> --keys <prod.keys>`. Mac mode creates no IPA, iOS project or Data package; the default remains iOS.
 
@@ -45,3 +45,7 @@ The one chain header is `dm/gfx/nvn/dmsh_chain.h` (currently `fa64eaf62c3e`). A 
 `./setup.sh mac-app` packs a double-clickable Apple silicon app using the upstream launcher. Raw game input and matching prepared Mac inputs are supported. See [Mac tutorial](MAC-APP.zh-CN.md) for commands, signing, saves and logs.
 
 Duo testing releases use Xcode 27.1 / iOS 27.1 SDK (`xcode-27` on GitHub Actions) so the Duo adaptation is compiled in. The deployment target remains iOS 26.
+
+## Expanded-view prepared program
+
+The iPhone adaptive patch requires the current 3.0.3 rewrite observations. Prepared modules from older releases must be regenerated with this source. The setup and shell assembly tools reject stale observations instead of producing a stretched image. Existing RomFS `.data` volumes do not need regeneration.

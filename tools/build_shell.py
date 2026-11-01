@@ -11,12 +11,12 @@ def source_id(root):
     h = hashlib.sha256()
     for base in ['dm/host', 'dm/gfx', 'dm/ios-acnh/Sources', 'dm/ios/Sources', 'dm/games/01006F8002326000']:
         for p in sorted((root/base).rglob('*')):
-            if p.is_file() and p.suffix in {'.c', '.h', '.m', '.S', '.inc', '.py', '.tsv', '.cs', '.csproj', '.swift'} and p.name not in excluded and not any(x in {'gen','bin','obj','__pycache__'} for x in p.relative_to(root).parts):
+            if p.is_file() and p.suffix in {'.c', '.h', '.m', '.S', '.inc', '.py', '.tsv', '.cs', '.csproj', '.swift', '.mk', '.json', '.metal'} and p.name not in excluded and not any(x in {'gen','bin','obj','__pycache__'} for x in p.relative_to(root).parts):
                 h.update(str(p.relative_to(root)).encode()+b'\0'+p.read_bytes()+b'\0')
     return h.hexdigest()
 
 def audit_app(app):
-    allowed = {'DmIOS', 'Info.plist', 'PkgInfo', 'dm/env.txt', 'dm/shell_info.json'}
+    allowed = {'DmIOS', 'Info.plist', 'PkgInfo', 'dm/env.txt', 'dm/shell_info.json', 'ExpandedView-LICENSE.txt'}
     actual = {str(p.relative_to(app)) for p in app.rglob('*') if p.is_file()}
     icons = {'Assets.car', 'AppIcon60x60@2x.png', 'AppIcon60x60@3x.png', 'AppIcon76x76@2x~ipad.png'}
     if not allowed <= actual or actual - allowed - icons:

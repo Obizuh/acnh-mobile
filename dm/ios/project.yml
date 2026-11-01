@@ -16,6 +16,8 @@ targets:
       - sdk: CoreNFC.framework
       - sdk: Security.framework
     sources:
+      - path: Resources/ExpandedView-LICENSE.txt
+        buildPhase: resources
       - Sources
       - path: Gen/embed.S
       - path: Gen/dm          # Rewriter tables (*.fixups.tsv / gates / cuts / obs) + shader map / c1 list / warm-up list
@@ -57,6 +59,9 @@ targets:
             UIWindowSceneSessionRoleApplication:
               - UISceneConfigurationName: Default
                 UISceneDelegateClassName: SceneDelegate
+            UIWindowSceneSessionRoleExternalDisplayNonInteractive:   # a TV by cable or AirPlay: the game's picture goes there, the phone keeps the pad (front_ios.m DmTVSceneDelegate)
+              - UISceneConfigurationName: TV
+                UISceneDelegateClassName: DmTVSceneDelegate
     settings:
       PRODUCT_BUNDLE_IDENTIFIER: ${DM_BUNDLE_ID}
       PRODUCT_NAME: DmIOS
@@ -70,6 +75,7 @@ targets:
       GCC_C_LANGUAGE_STANDARD: gnu11
       OTHER_CFLAGS: $(inherited) -mcpu=apple-a18   # The host assembly contains LSE atomic instructions, which the default baseline does not accept
       CLANG_ENABLE_OBJC_ARC: YES
+      SWIFT_OBJC_BRIDGING_HEADER: Sources/DmIOS-Bridging-Header.h
       SWIFT_VERSION: "5.0"
       DEBUG_INFORMATION_FORMAT: dwarf
       GCC_WARN_INHIBIT_ALL_WARNINGS: YES

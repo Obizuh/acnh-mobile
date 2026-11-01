@@ -1,20 +1,27 @@
 # ACNH Mobile
 
-**0.3.46 · build 48 — official Metal 4 edition, iOS 26+.**
+**0.3.86 · build 95 — official Metal 4 edition, iOS 26+.**
 
-A native compatibility runtime for Animal Crossing: New Horizons 3.0.3. The runtime and shader translation sources are based on [NXNative](https://github.com/seedds/nxnative) commit `e72a06510e6dfff4a77c49fd205a82e21cad0786`.
+Optional iCloud Drive save sharing is available in the iPhone and Mac launchers; choose the same folder on both devices. Replaced saves are backed up locally.
+
+Experimental same-Wi-Fi local networking is included as an ACNH-only patch. LiveContainer + SideStore users must update to the LAN-enabled host attached to this release and allow local network access. [Release notes](docs/RELEASE-v0.3.86.zh-CN.md).
+A native compatibility runtime for Animal Crossing: New Horizons 3.0.3. The runtime and shader translation sources are based on [NXNative](https://github.com/seedds/nxnative) commit `5474c6f34789a41770868564fbf4e9e32fc57584`.
 
 This edition uses the official Metal 4 replay path and matching shader chain. It retains ACNH's icon touch controls, tool wheel, physical controllers, R/field-triggered Chinese text input, direct external `.data` access, transactional saves, amiibo file import, Photos export and bounded haptics. Custom touch layouts can be edited from startup settings; there is no added in-game typing toolbar.
 
 [简体中文](README.zh-CN.md) · [Shell guide](docs/SHELL.md) · [Build guide](docs/BUILD.md)
 
-This release isolates save failures by backing transaction and reapplies Mac audio buffer sizing after output changes. It retains Duo testing layouts, grouped launcher settings, dedicated/custom controls, Photos export, text input and existing `.data` files. See [release notes](docs/RELEASE-v0.3.46.zh-CN.md).
+Adaptive expanded view preserves horizontal FOV and reveals more vertical scenery on landscape iPads; wide iPhones retain horizontal expansion. Existing controllers, input, external data and Duo layouts remain available. See [release notes](docs/RELEASE-v0.3.63.zh-CN.md).
 
 ## Downloads
 
 [Releases](https://github.com/huajiaoshu520/acnh-mobile/releases) contains an **unsigned, game-free shell IPA**, audit report and SHA256 checksums. It contains no game program, game data, translated game shaders, keys, saves or fonts. The project app icon is the sole artwork exception. A shell alone cannot play the game; importing `.data` alone is insufficient.
 
 Use an Apple Silicon Mac and your own rewritten 3.0.3 modules, complete matching official iOS shader cache, RomFS and font to generate a private IPA. Sign the entire resulting package, including Guest.framework when using shell assembly. Do not upload private, game-containing IPA files.
+
+Build 92 synchronizes the generic runtime and shader tools with the pinned NXNative baseline: MetalFX upscaling, thermal pacing, expanded controller rumble, offline Metal pipeline archives, GPU diagnostics and newer graphics/movie handling. ACNH controls, adaptive layout, LAN, photo export and cloud saves remain project adapters. Device-only behavior still requires device testing.
+
+IPA and game data remain separate: the IPA contains the runtime and converted shaders; the existing compatible external `.data` package is reused. NSZ/XCZ conversion is supported by the local one-click tool. Optional offline pipeline targets can be selected with `--gpu g18p` (or `pso_gpus` in local configuration); omitted targets follow the official profile defaults.
 
 ## Existing build interface
 
@@ -29,6 +36,8 @@ Use an Apple Silicon Mac and your own rewritten 3.0.3 modules, complete matching
 ```
 
 The resource pack remains outside the IPA. Existing 3.0.3 `ACNH-index.data` and numbered `.data` parts remain compatible and are read directly without extraction. Place the complete set in `Documents/ACNHMobile`, or choose its folder in the app. First import verifies file hashes; later starts reuse the verified index identity.
+
+Build 95 adds Mac fullscreen startup readiness, external DLC discovery on iOS, movie audio recovery after seeks, audio diagnostics outside the real-time callback, guarded jump-table recognition and benchmark pipeline archive selection.
 
 ## Validation
 
@@ -47,3 +56,9 @@ Download and extract the complete project, then double-click a root `.command` l
 ## Mac app
 
 Build a standalone `.app` with `./setup.sh mac-app`, using your own game and keys or matching prepared Mac inputs. [Chinese tutorial](docs/MAC-APP.zh-CN.md).
+
+### External DLC in one-click builds
+
+Place your own DLC NSPs beside the base and 3.0.3 update before running the one-click tool. It extracts DLC with the official extractor, includes DLC resources in shader preparation, and outputs an `aoc` folder beside the IPA for both iOS build modes. Copy the entire `aoc` folder to the app’s `Documents` and restart. Keep `Documents/ACNHMobile` for the existing `.data` pack; DLC is separate. Adding/removing DLC invalidates preparation caches. The output `aoc` is a complete replacement set (including an empty set when no DLC is selected), not a merge. Mac app builds include the extracted DLC. No game files or keys are published.
+
+DLC may also be placed under `game-directory/dlc/` (case-insensitive folder name; nested folders supported). Only DLC packages belong there; unrelated build/cache folders are not scanned.

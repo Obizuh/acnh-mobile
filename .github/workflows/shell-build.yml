@@ -26,6 +26,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - name: Install rewriter test dependency
+        run: python -m pip install capstone==5.0.7 lz4==4.4.5
       - name: Require Duo-capable SDK
         run: |
           xcodebuild -version
@@ -48,11 +50,28 @@ jobs:
           with open(os.environ['GITHUB_ENV'],'a') as f:
               f.write('RELEASE_TAG='+tag+'\nAPP_VERSION='+v['version']+'\nAPP_BUILD='+str(v['build'])+'\n')
           PY
+      - name: Prepare pinned generic regression fixtures
+        run: python tools/test_reference.py
       - name: Audit source and test packaging
         run: |
           python tools/audit_release.py .
+          make -C dm/host/tests GAME=01006F8002326000 save-sync
+          make -C dm/host/tests GAME=01006F8002326000 build/t_cheats build/t_bigstack build/t_pad_apple build/t_nv build/t_oe
+          dm/host/tests/build/t_cheats
+          dm/host/tests/build/t_bigstack
+          dm/host/tests/build/t_pad_apple
+          dm/host/tests/build/t_nv
+          dm/host/tests/build/t_oe
+          python -m unittest dm/tools/tests/test_cheat_anchor.py
+          make -C dm/gfx/tests GAME=01006F8002326000 t_dirty_retire_race
+          dm/gfx/tests/t_dirty_retire_race
           python tools/test_shell.py
+          python tools/test_rewritten_display.py
+          python tools/test_nsp_external_drive.py
+          make -C dm/host/tests GAME=01006F8002326000 build/t_language
+          dm/host/tests/build/t_language
           python tools/test_one_click.py
+          python tools/test_one_click_dlc.py
           python tools/test_prepare_game.py
           python tools/test_nro_embed.py
           python tools/test_album_save.py
@@ -60,9 +79,18 @@ jobs:
           "$RUNNER_TEMP/t-caps-pixels"
           clang -Wall -Wextra -Werror dm/ios/tests/t_adaptive_layout.c -framework CoreGraphics -o "$RUNNER_TEMP/t-adaptive-layout"
           "$RUNNER_TEMP/t-adaptive-layout"
+          clang -fobjc-arc dm/ios/tests/t_device_support.m -framework Foundation -o "$RUNNER_TEMP/t-device-support"
+          "$RUNNER_TEMP/t-device-support"
+          clang -Wall -Wextra -Werror dm/ios/tests/t_display_modes.c -framework CoreGraphics -o "$RUNNER_TEMP/t-display-modes"
+          "$RUNNER_TEMP/t-display-modes"
+          make -s -C dm/host GAME=01006F8002326000 game_profile
+          clang -O1 -Wall -Wno-unused-function -Idm/host -Idm/host/gen/01006F8002326000 dm/host/tests/t_acnh_display.c -framework Foundation -lpthread -o "$RUNNER_TEMP/t-acnh-display"
+          "$RUNNER_TEMP/t-acnh-display"
           clang -fobjc-arc dm/ios/tests/t_save_file_coordinator.m dm/ios/Sources/SaveFileCoordinator.m -framework Foundation -o "$RUNNER_TEMP/t-save-coordinator"
           "$RUNNER_TEMP/t-save-coordinator"
           python tools/test_launcher.py
+          swiftc -parse-as-library dm/ios/Sources/LauncherStrings.swift dm/ios/tests/t_launcher_strings.swift -o "$RUNNER_TEMP/t-launcher-strings"
+          "$RUNNER_TEMP/t-launcher-strings"
           python tools/test_own_compilers.py
           python dm/gfx/tools/test_dmsh_alpha.py
           python dm/gfx/tools/test_upstream_shader.py
@@ -70,8 +98,21 @@ jobs:
           python tools/test_nsp_mac.py
           python dm/tools/tests/test_nsp_mac_app.py
           python dm/tools/tests/test_launcher_settings.py
+          python dm/tools/tests/test_address_regions.py
           python dm/tools/tests/test_patches.py
           python tools/test_shader_tables.py
+          python tools/test_shader_appledouble.py
+          make -C dm/gfx/tests GAME=01006F8002326000 t_cpu_tex t_sparse_layout t_tex_layout t_pso_skey t_alpha t_readback t_initial_uncached t_cube_placeholder t_view_swizzle
+          dm/gfx/tests/t_cpu_tex
+          dm/gfx/tests/t_sparse_layout
+          dm/gfx/tests/t_tex_layout
+          dm/gfx/tests/t_pso_skey
+          make -C dm/gfx/tests GAME=01006F8002326000 check_t_sbw
+          make -C dm/host/tests GAME=01006F8002326000 build/t_time
+          dm/host/tests/build/t_time
+          make -C dm/host/tests GAME=01006F8002326000 build/t_hid
+          dm/host/tests/build/t_hid
+          make -C dm/gfx/tests GAME=01006F8002326000 check_t_capture t_capture_live nvn_replay t_tex_fit_root
           clang -Wall -Wextra -Werror dm/ios/tests/t_touch_feedback.c -o "$RUNNER_TEMP/t-touch-feedback"
           "$RUNNER_TEMP/t-touch-feedback"
           clang -Wall -Wextra -Werror dm/ios/tests/t_acnh_wheel.c -o "$RUNNER_TEMP/t-acnh-wheel"
@@ -88,8 +129,15 @@ jobs:
           dm/host/tests/build/t_gesture
           dm/host/tests/build/t_nro
           dm/host/tests/build/t_hid
+          make -C dm/host/tests GAME=01006F8002326000 build/t_motion build/t_motion_apple build/t_motion_pro build/t_motion_pro_mac
+          dm/host/tests/build/t_motion
+          dm/host/tests/build/t_motion_apple
+          dm/host/tests/build/t_motion_pro
+          dm/host/tests/build/t_motion_pro_mac
           dm/host/tests/build/t_audren_open
           dm/host/tests/build/t_audren_work
+          make -C dm/host/tests GAME=01006F8002326000 build/t_audren_layout
+          dm/host/tests/build/t_audren_layout
           make -C dm/host/tests GAME=01006F8002326000 build/t_fs_commit_list build/t_audio_device
           dm/host/tests/build/t_fs_commit_list
           dm/host/tests/build/t_audio_device
@@ -122,10 +170,16 @@ jobs:
             echo 'Release exists; refusing to overwrite.' >&2
             exit 1
           fi
-          gh release create "$RELEASE_TAG" "$RUNNER_TEMP"/shell-output/* \
+          mkdir -p "$RUNNER_TEMP/host-output"
+          gh release download v0.3.67 --repo "$GITHUB_REPOSITORY" --pattern 'LiveContainer-3.8.11+SideStore-ACNH-LAN-unsigned.ipa*' --dir "$RUNNER_TEMP/host-output"
+          (cd "$RUNNER_TEMP/host-output" && echo '2045982f1190b41741b92616ee71882d0c3d462ae87ffd3581cb4833450fb993  LiveContainer-3.8.11+SideStore-ACNH-LAN-unsigned.ipa' | shasum -a 256 -c -)
+          cat "docs/RELEASE-$RELEASE_TAG.zh-CN.md" "docs/RELEASE-$RELEASE_TAG.en.md" > "$RUNNER_TEMP/release-notes.md"
+          gh release create "$RELEASE_TAG" "$RUNNER_TEMP"/shell-output/* "$RUNNER_TEMP"/host-output/* \
             --target "$(git rev-parse HEAD)" --draft \
             --title "ACNH Mobile $RELEASE_TAG · 官方 Metal 4 空壳" \
-            --notes-file "docs/RELEASE-$RELEASE_TAG.zh-CN.md"
-          gh release download "$RELEASE_TAG" --dir "$RUNNER_TEMP/remote-shell"
+            --notes-file "$RUNNER_TEMP/release-notes.md"
+          gh release download "$RELEASE_TAG" --pattern "ACNHMobile-*-shell-unsigned.ipa" --pattern "shell-audit.json" --pattern "SHA256SUMS.txt" --dir "$RUNNER_TEMP/remote-shell"
           python tools/verify_shell.py "$RUNNER_TEMP/remote-shell"
+          gh release download "$RELEASE_TAG" --pattern 'LiveContainer-3.8.11+SideStore-ACNH-LAN-unsigned.ipa*' --dir "$RUNNER_TEMP/remote-host"
+          (cd "$RUNNER_TEMP/remote-host" && shasum -a 256 -c 'LiveContainer-3.8.11+SideStore-ACNH-LAN-unsigned.ipa.sha256')
           gh release edit "$RELEASE_TAG" --draft=false --latest

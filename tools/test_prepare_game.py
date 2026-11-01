@@ -10,8 +10,8 @@ class PrepareTests(unittest.TestCase):
     def test_selection_and_exact_version(self):
         with tempfile.TemporaryDirectory() as t:
             root=Path(t);keys=root/'prod.keys';keys.write_text('synthetic test placeholder')
-            base=root/'[01006F8002326000].nsp';base.write_bytes(b'not a real game')
-            update=root/'[01006F8002326800][v2228224].nsp';update.write_bytes(b'not a real game')
+            base=root/'[01006F8002326000].nsp';base.write_bytes(b'PFS0'+bytes(12))
+            update=root/'[01006F8002326800][v2228224].nsp';update.write_bytes(b'PFS0'+bytes(12))
             self.assertEqual(p.raw_plan(root,root)[3]['base'],base.resolve())
             update.rename(root/'[01006F8002326800][v1].nsp')
             with self.assertRaisesRegex(ValueError,'3.0.3'):p.raw_plan(root,keys)
@@ -19,17 +19,17 @@ class PrepareTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as t:
             root=Path(t)
             with self.assertRaisesRegex(ValueError,'prod.keys'):p.raw_plan(root,root/'missing')
-            (root/'prod.keys').write_text('placeholder');(root/'[0100000000000000].nsp').write_bytes(b'placeholder')
+            (root/'prod.keys').write_text('placeholder');(root/'[0100000000000000].nsp').write_bytes(b'PFS0'+bytes(12))
             with self.assertRaisesRegex(ValueError,'不是动森'):p.raw_plan(root,root)
     def test_dependency_plan_never_installs(self):
         with patch.object(d.shutil,'which',return_value=None),patch.object(d,'available',return_value=False),patch.object(d.subprocess,'run',side_effect=AssertionError('unexpected install')):
             plan=d.ensure(raw=True,plan=True)
-            self.assertTrue(plan['dotnet10']);self.assertIn('spirv-cross',plan['homebrew']);self.assertIn('fonttools',plan['python'])
+            self.assertTrue(plan['dotnet10']);self.assertIn('cmake',plan['homebrew']);self.assertIn('fonttools',plan['python'])
     def test_mac_dependency_plan_does_not_require_xcodegen(self):
         with patch.object(d.shutil,'which',return_value=None),patch.object(d,'available',return_value=False):
             plan=d.ensure(raw=True,plan=True,mac=True)
             self.assertNotIn('xcodegen',plan['homebrew'])
-            self.assertIn('spirv-cross',plan['homebrew'])
+            self.assertIn('cmake',plan['homebrew'])
     def test_translator_preflight_before_extraction(self):
         import subprocess
         with tempfile.TemporaryDirectory() as t:

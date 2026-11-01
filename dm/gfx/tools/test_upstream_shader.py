@@ -3,7 +3,10 @@ import ast
 from pathlib import Path
 import re
 import unittest
-import dmsh_alpha, dmsh_fetch, dmsh_geometry
+import dmsh_fetch, dmsh_geometry
+import sys, types
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "games"))
+import game
 
 HERE=Path(__file__).parent
 node=next(n for n in ast.parse((HERE/'dmsh_build.py').read_text()).body if isinstance(n,ast.FunctionDef) and n.name=='precise')
@@ -41,30 +44,18 @@ fragment main0_out_u main0_u() { return main0_out_u{uint4(1)}; }
   for decl in ('float clip[8] [[clip_distance]];', 'float clip [[clip_distance]] [8];'):
    src='struct main0_out {\nfloat4 p [[position]];\n'+decl+'\nfloat clip0 [[user(clip0)]];\n};\nvertex main0_out main0(uint v [[vertex_id]]) {main0_out out; return out;}'
    cap=dmsh_geometry.capture(src)
-   self.assertIn('dm_p[12] = as_type<uint>(out.clip[7]);',cap)
-   self.assertIn('dm_p[5] = as_type<uint>(out.clip0);',cap)
- def test_alpha_fetch_scoped_exits(self):
-  src='''#include <metal_stdlib>
-using namespace metal;
-struct main0_out
-{
- float4 m_0 [[color(0)]];
+   self.assertIn('dm_cw(dm_gs, dm_p, 12, as_type<uint>(out.clip[7]));',cap)
+   self.assertIn('dm_cw(dm_gs, dm_p, 5, as_type<uint>(out.clip0));',cap)
+ def test_official_alpha_variant_preserves_base(self):
+  import dmsh_alpha as official
+  src="""struct main0_out {
+float4 m_0 [[color(0)]];
 };
-fragment main0_out main0(float4 p [[position]])
-{
-    main0_out out = {};
-    out.m_0 = float4(1,0,0,0.5);
-    if (p.x < 0) return out;
-    return out;
-}
-'''
-  alpha=dmsh_alpha.fragment(src)
-  variant,meta=dmsh_fetch.variant(alpha,[],om_only_ok=True)
-  self.assertTrue(variant,meta)
-  self.assertEqual(variant.count('dm_alpha_test(float(spv_o_m_0.w), dm_alpha);'),2)
-  self.assertEqual(variant.count('out.m_0_at0 = spv_o_m_0;'),2)
-  self.assertIn('constant dm_alpha_state& dm_alpha [[buffer(30)]]',variant)
-  # Conditional early return stays scoped; output mapping follows its alpha test.
-  self.assertRegex(variant,r'if \(p.x < 0\) \{ dm_alpha_test[\s\S]*?return out; \}')
+fragment main0_out main0() { main0_out out = {}; out.m_0 = float4(1); return out; }
+"""
+  variant, entries=official.variant(src)
+  self.assertEqual(entries,['main0'])
+  self.assertIn('discard_fragment()',variant)
+  self.assertNotIn('dm_alpha_state',src)
 
 if __name__=='__main__':unittest.main()

@@ -12,6 +12,7 @@ jobs:
       - run: python tools/public_setup.py --help
       - run: python tools/test_shell.py
       - run: python tools/test_one_click.py
+      - run: python tools/test_one_click_dlc.py
       - run: python tools/test_prepare_game.py
       - run: python tools/test_launcher.py
       - run: python tools/test_own_compilers.py
@@ -20,4 +21,5 @@ jobs:
       - run: python tools/test_nsp_chain.py
       - run: python tools/test_shader_tables.py
       - run: python tools/test_nsp_mac.py
+      - run: python tools/test_reference.py
       - run: python dm/tools/tests/test_patches.py
