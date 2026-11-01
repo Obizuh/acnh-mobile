@@ -4,7 +4,7 @@ workflows:
     max_build_duration: 60
     instance_type: mac_mini_m2
     environment:
-      xcode: "26.6"
+      xcode: "27.1"
     scripts:
       - name: Install XcodeGen
         script: brew install xcodegen
@@ -20,7 +20,7 @@ workflows:
     max_build_duration: 120
     instance_type: mac_mini_m2
     environment:
-      xcode: "26.6"
+      xcode: "27.1"
       groups:
         - acnh-assets
     scripts:
